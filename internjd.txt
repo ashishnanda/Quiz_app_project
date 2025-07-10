@@ -1,0 +1,58 @@
+Internship Role:
+
+Data Science Intern – Data Analytics Foundational Platform (DAFP) Team, WMA Technology
+
+⸻
+
+Location:
+
+[Remote / On-site at ____ / Hybrid, specify city or time zone]
+
+Duration:
+
+[__ weeks/months]
+[Start Date: __]
+[Stipend: ₹ / Not Disclosed]
+
+Team Context:
+
+Join the DAFP team within WMA Technology, which focuses on building scalable data and AI solutions for wealth management workflows, financial advisor tools, and client analytics.
+
+⸻
+
+Key Responsibilities:
+	•	Assist in designing and evaluating statistical and machine learning models for improving [decision-making / personalization / lead targeting] in wealth management workflows.
+	•	Contribute to the development of Generative AI (GenAI)-based solutions such as [summarization, recommendation engines, synthetic data generation – pick applicable use case].
+	•	Work on large-scale data analysis tasks involving datasets with [millions of rows / high-dimensional features] using tools like [Python, SQL, Spark – adjust as applicable].
+	•	Analyze and validate model outputs using metrics such as [AUC, RMSE, Precision@K – adjust as applicable].
+	•	Collaborate with product managers, data engineers, and domain experts to integrate predictive models into business systems.
+	•	Document experiments, track model iterations, and present findings during weekly review calls.
+
+⸻
+
+Preferred Tools & Languages:
+
+[Python, SQL, Pandas, Scikit-learn, LangChain, LangGraph, Vector DBs like FAISS / Weaviate / Pinecone – adjust to match your stack]
+
+⸻
+
+Learning Opportunities:
+	•	Hands-on experience in applying advanced machine learning and GenAI techniques to real-world problems in the financial domain.
+	•	Opportunity to work with production-scale datasets and pipelines using modern tools such as [LangChain, LangGraph, Vector Databases – specify actual usage if known].
+	•	Exposure to data-centric and model-centric workflows within a mature data science team.
+	•	Learn best practices in experiment tracking, evaluation metrics, and ML model deployment.
+	•	[Optional: Access to senior mentors from data science, ML engineering, and product teams.]
+
+⸻
+
+Ideal Candidate Profile:
+	•	Currently pursuing a B.Tech / Dual Degree / M.Tech in Computer Science, Data Science, EE, Math or related field from IIT Bombay.
+	•	Strong programming skills in Python; prior exposure to SQL and machine learning libraries is desirable.
+	•	Prior coursework or internship experience in data analysis, predictive modeling, or LLMs preferred.
+	•	Demonstrated interest in AI/ML through academic projects, competitions, or research work.
+
+⸻
+
+Application Process:
+
+Please submit your resume, a brief cover note, and links to any relevant work (GitHub, publications, Kaggle, etc.) by [Date].
