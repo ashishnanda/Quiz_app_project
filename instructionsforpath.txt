@@ -1,0 +1,29 @@
+Step 1: Open the terminal.
+
+Step 2: Run the command
+echo $SHELL
+This will show whether you are using bash or zsh.
+
+Step 3: Open the config file
+If using bash, run
+nano ~/.bashrc
+If using zsh, run
+nano ~/.zshrc
+
+Step 4: Scroll to the bottom of the file and add the line
+export PATH=”$HOME/.local/bin:$PATH”
+
+Step 5: Save and exit
+Press Ctrl + O then Enter to save
+Press Ctrl + X to exit
+
+Step 6: Apply the changes
+If using bash, run
+source ~/.bashrc
+If using zsh, run
+source ~/.zshrc
+
+Step 7: Test it
+Run the command
+llama-index-cli –help
+If it shows help text, it is working correctly.
