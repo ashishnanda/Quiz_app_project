@@ -38,6 +38,9 @@ class ProspectMatcher:
                   nodes_df: pd.DataFrame = None,
                   edges_df: pd.DataFrame = None,
                   prospect_ids: List[str] = None):
+        def clean_column_names(df: pd.DataFrame):
+            return [col.replace('"', '').strip() for col in df.columns]
+
         if nodes_df is not None and edges_df is not None:
             print("[load_data] Using provided DataFrames for nodes and edges.")
             self.nodes_df = nodes_df.copy()
@@ -53,25 +56,28 @@ class ProspectMatcher:
                                 schema=self.edge_schema_name)
 
             nodes_query = select(
-                literal_column("ID"),
-                literal_column("Label"),
-                literal_column("entity_type")
+                literal_column('"ID"'),
+                literal_column('"Label"'),
+                literal_column('"entity_type"')
             ).select_from(nodes_table)
 
             edges_query = select(
-                literal_column("source"),
-                literal_column("target"),
-                literal_column("weight"),
-                literal_column("edge_detail")
+                literal_column('"source"'),
+                literal_column('"target"'),
+                literal_column('"weight"'),
+                literal_column('"edge_detail"')
             ).select_from(edges_table)
 
             self.nodes_df = pd.read_sql(nodes_query, self.engine)
             self.edges_df = pd.read_sql(edges_query, self.engine)
 
+            self.nodes_df.columns = clean_column_names(self.nodes_df)
+            self.edges_df.columns = clean_column_names(self.edges_df)
+
         if prospect_ids is not None:
             print("[load_data] Using provided list of prospect_ids.")
             self.prospect_ids = prospect_ids
-            self.prospect_df = pd.DataFrame({"ID": prospect_ids})
+            self.prospect_df = pd.DataFrame({self.prospect_column: prospect_ids})
         else:
             print("[load_data] Loading prospect_ids from SQL.")
             self.metadata.reflect(bind=self.engine, schema=self.prospect_schema, only=[self.prospect_table])
@@ -79,10 +85,12 @@ class ProspectMatcher:
                                    schema=self.prospect_schema)
 
             prospect_query = select(
-                literal_column(f"{self.prospect_column}")
+                literal_column(f'"{self.prospect_column}"')
             ).select_from(prospect_table)
 
             self.prospect_df = pd.read_sql(prospect_query, self.engine)
+            self.prospect_df.columns = clean_column_names(self.prospect_df)
+            self.prospect_column = self.prospect_column.replace('"', '').strip()
             self.prospect_ids = list(self.prospect_df[self.prospect_column].dropna().unique())
 
         print(f"[load_data] Nodes: {self.nodes_df.shape}, Edges: {self.edges_df.shape}, Prospects: {len(self.prospect_ids)}")
@@ -123,7 +131,7 @@ class ProspectMatcher:
                     best_clients = [(current, new_path)]
                 elif cum_weight == best_score:
                     best_clients.append((current, new_path))
-                continue  # Still explore others in case of tie
+                continue
 
             for neighbor in G.neighbors(current):
                 if neighbor not in visited:
