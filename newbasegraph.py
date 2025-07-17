@@ -1,13 +1,18 @@
-def load_data(self, nodes_df: pd.DataFrame = None, edges_df: pd.DataFrame = None):
+def load_data(self, 
+              nodes_df: pd.DataFrame = None, 
+              edges_df: pd.DataFrame = None, 
+              prospect_ids: list = None):
     """
-    Load nodes, edges, and prospect IDs from either:
-    - SQL tables (default), or
-    - Supplied pandas DataFrames `nodes_df`, `edges_df`.
+    Load nodes, edges, and prospect IDs into the class.
+    Supports:
+    1. SQL loading (default)
+    2. Custom DataFrame input for nodes and edges
+    3. Optional manual list of prospect IDs
 
     Sets:
         - self.nodes_df
         - self.edges_df
-        - self.prospect_df
+        - self.prospect_df (if derivable)
         - self.prospect_ids
     """
     import pandas as pd
@@ -18,9 +23,14 @@ def load_data(self, nodes_df: pd.DataFrame = None, edges_df: pd.DataFrame = None
         self.nodes_df = nodes_df.copy()
         self.edges_df = edges_df.copy()
 
-        # Derive prospect_df based on entity type
-        self.prospect_df = self.nodes_df[self.nodes_df["entity_type"] == "Prospect"]
-        self.prospect_ids = list(self.prospect_df["ID"].dropna().unique())
+        if prospect_ids is not None:
+            print("[load_data] Using user-provided prospect_ids list.")
+            self.prospect_ids = prospect_ids
+            self.prospect_df = pd.DataFrame({"ID": prospect_ids})
+        else:
+            # Derive from node dataframe
+            self.prospect_df = self.nodes_df[self.nodes_df["entity_type"] == "Prospect"]
+            self.prospect_ids = list(self.prospect_df["ID"].dropna().unique())
 
     else:
         print("[load_data] Loading from SQL tables.")
@@ -54,11 +64,16 @@ def load_data(self, nodes_df: pd.DataFrame = None, edges_df: pd.DataFrame = None
 
         self.nodes_df = pd.read_sql(nodes_query, self.engine)
         self.edges_df = pd.read_sql(edges_query, self.engine)
-        self.prospect_df = pd.read_sql(prospect_query, self.engine)
-        self.prospect_ids = list(self.prospect_df[self.prospect_column].dropna().unique())
+
+        if prospect_ids is not None:
+            print("[load_data] Using user-provided prospect_ids list.")
+            self.prospect_ids = prospect_ids
+            self.prospect_df = pd.DataFrame({"ID": prospect_ids})
+        else:
+            self.prospect_df = pd.read_sql(prospect_query, self.engine)
+            self.prospect_ids = list(self.prospect_df[self.prospect_column].dropna().unique())
 
     print(f"[load_data] Nodes: {self.nodes_df.shape}, Edges: {self.edges_df.shape}, Prospects: {len(self.prospect_ids)}")
-    
     
 def find_best_fit_clients(self) -> pd.DataFrame:
     """
