@@ -31,6 +31,11 @@ class ProspectMatcher:
         self.prospect_ids = []
         self.unfound_prospects = []
         self.graph = nx.Graph()
+        self.results = pd.DataFrame()
+
+        self.node_to_component = {}
+        self.component_clients = {}
+        self.connected_components = []
 
     def load_data(self,
                   nodes_df: pd.DataFrame = None,
@@ -92,6 +97,17 @@ class ProspectMatcher:
             self.graph.add_edge(row["source"], row["target"],
                                 weight=row.get("weight", 1.0),
                                 edge_detail=row.get("edge_detail"))
+        self._compute_connected_components()
+
+    def _compute_connected_components(self):
+        self.node_to_component = {}
+        self.component_clients = {}
+        self.connected_components = list(nx.connected_components(self.graph))
+        for idx, component in enumerate(self.connected_components):
+            for node in component:
+                self.node_to_component[node] = idx
+            clients = [n for n in component if self.graph.nodes[n].get("entity_type") == "Client"]
+            self.component_clients[idx] = clients
 
     def _find_paths_and_scores(self, G: nx.Graph, prospect: str, client: str, max_depth: int = 5) -> float:
         scores = []
@@ -106,29 +122,35 @@ class ProspectMatcher:
             return 0.0
         return sum(scores)
 
-    def find_best_fit_clients_multiplicative(self, max_depth: int = 5) -> pd.DataFrame:
+    def find_best_fit_clients_multiplicative(self, max_depth: int = 5, chunk_size: int = 100) -> pd.DataFrame:
         G = self.graph
-        clients = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "Client"}
+        self.results = pd.DataFrame()
         prospects = [p for p in self.prospect_ids if G.has_node(p) and G.nodes[p].get("entity_type") == "Prospect"]
         self.unfound_prospects = [p for p in self.prospect_ids if not G.has_node(p)]
 
-        results = []
-        for prospect in prospects:
-            best_score = 0
-            best_client = None
-            for client in clients:
-                if prospect == client:
+        for i in range(0, len(prospects), chunk_size):
+            chunk = prospects[i:i + chunk_size]
+            chunk_results = []
+            for prospect in chunk:
+                comp_id = self.node_to_component.get(prospect)
+                if comp_id is None:
                     continue
-                score = self._find_paths_and_scores(G, prospect, client, max_depth=max_depth)
-                if score > best_score:
-                    best_score = score
-                    best_client = client
-            results.append({
-                "Prospect": prospect,
-                "Client": best_client,
-                "Score": best_score
-            })
-        return pd.DataFrame(results)
+                best_score = 0
+                best_client = None
+                for client in self.component_clients[comp_id]:
+                    if prospect == client:
+                        continue
+                    score = self._find_paths_and_scores(G, prospect, client, max_depth=max_depth)
+                    if score > best_score:
+                        best_score = score
+                        best_client = client
+                chunk_results.append({
+                    "Prospect": prospect,
+                    "Client": best_client,
+                    "Score": best_score
+                })
+            self.results = pd.concat([self.results, pd.DataFrame(chunk_results)], ignore_index=True)
+        return self.results
 
     def _match_prospect_dijkstra(self, prospect: str, G: nx.Graph, clients: set, advisors: set) -> List[dict]:
         visited = set()
@@ -182,25 +204,26 @@ class ProspectMatcher:
 
         return results
 
-    def find_best_fit_clients_dijkstra(self) -> pd.DataFrame:
+    def find_best_fit_clients_dijkstra(self, chunk_size: int = 100) -> pd.DataFrame:
         G = self.graph
-        clients = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "Client"}
         advisors = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "UBS Financial Advisor"}
         prospects = [n for n in self.prospect_ids if G.has_node(n) and G.nodes[n].get("entity_type") == "Prospect"]
-        clients = clients - set(prospects)
         self.unfound_prospects = [pid for pid in self.prospect_ids if not G.has_node(pid)]
+        self.results = pd.DataFrame()
 
-        results = []
-        for p in prospects:
-            results.extend(self._match_prospect_dijkstra(p, G, clients, advisors))
-
-        return pd.DataFrame(results)
+        for i in range(0, len(prospects), chunk_size):
+            chunk = prospects[i:i + chunk_size]
+            chunk_results = []
+            for p in chunk:
+                comp_id = self.node_to_component.get(p)
+                if comp_id is None:
+                    continue
+                component_clients = set(self.component_clients[comp_id])
+                chunk_results.extend(self._match_prospect_dijkstra(p, G, component_clients, advisors))
+            self.results = pd.concat([self.results, pd.DataFrame(chunk_results)], ignore_index=True)
+        return self.results
 
     def check_client_connection(self) -> Tuple[List[str], List[str]]:
-        """
-        Identify which prospects are connected (directly or indirectly) to at least one client.
-        Discards all edges where one of the nodes is an advisor.
-        """
         G = self.graph.copy()
         advisors = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "UBS Financial Advisor"}
         G.remove_nodes_from(advisors)
