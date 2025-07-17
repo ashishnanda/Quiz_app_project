@@ -1,10 +1,8 @@
-from typing import List
+from typing import List, Tuple
 import pandas as pd
 import networkx as nx
-import time
 from heapq import heappush, heappop
 from sqlalchemy import MetaData, Table, select, literal_column
-from joblib import Parallel, delayed
 
 
 class ProspectMatcher:
@@ -39,12 +37,13 @@ class ProspectMatcher:
                   edges_df: pd.DataFrame = None,
                   prospect_ids: List[str] = None):
         def clean_column_names(df: pd.DataFrame):
-            return [col.replace('"', '').strip() for col in df.columns]
+            df.columns = [col.replace('"', '').strip() for col in df.columns]
+            return df
 
         if nodes_df is not None and edges_df is not None:
             print("[load_data] Using provided DataFrames for nodes and edges.")
-            self.nodes_df = nodes_df.copy()
-            self.edges_df = edges_df.copy()
+            self.nodes_df = clean_column_names(nodes_df.copy())
+            self.edges_df = clean_column_names(edges_df.copy())
         else:
             print("[load_data] Loading nodes and edges from SQL.")
             self.metadata.reflect(bind=self.engine, schema=self.nodes_schema_name, only=[self.nodes_table_name])
@@ -68,11 +67,8 @@ class ProspectMatcher:
                 literal_column('"edge_detail"')
             ).select_from(edges_table)
 
-            self.nodes_df = pd.read_sql(nodes_query, self.engine)
-            self.edges_df = pd.read_sql(edges_query, self.engine)
-
-            self.nodes_df.columns = clean_column_names(self.nodes_df)
-            self.edges_df.columns = clean_column_names(self.edges_df)
+            self.nodes_df = clean_column_names(pd.read_sql(nodes_query, self.engine))
+            self.edges_df = clean_column_names(pd.read_sql(edges_query, self.engine))
 
         if prospect_ids is not None:
             print("[load_data] Using provided list of prospect_ids.")
@@ -88,8 +84,7 @@ class ProspectMatcher:
                 literal_column(f'"{self.prospect_column}"')
             ).select_from(prospect_table)
 
-            self.prospect_df = pd.read_sql(prospect_query, self.engine)
-            self.prospect_df.columns = clean_column_names(self.prospect_df)
+            self.prospect_df = clean_column_names(pd.read_sql(prospect_query, self.engine))
             self.prospect_column = self.prospect_column.replace('"', '').strip()
             self.prospect_ids = list(self.prospect_df[self.prospect_column].dropna().unique())
 
@@ -100,12 +95,10 @@ class ProspectMatcher:
         self.graph = nx.Graph()
         for _, row in self.nodes_df.iterrows():
             self.graph.add_node(row["ID"], label=row.get("Label"), entity_type=row.get("entity_type"))
-
         for _, row in self.edges_df.iterrows():
             self.graph.add_edge(row["source"], row["target"],
                                 weight=row.get("weight", 1.0),
                                 edge_detail=row.get("edge_detail"))
-
         print(f"[build_graph] Graph built with {self.graph.number_of_nodes()} nodes and {self.graph.number_of_edges()} edges.")
 
     def _match_prospect(self, prospect: str, G: nx.Graph, clients: set, ubs_advisors: set) -> List[dict]:
@@ -116,12 +109,9 @@ class ProspectMatcher:
 
         while heap:
             cum_weight, current, path = heappop(heap)
-            if current in visited:
+            if current in visited or current in ubs_advisors:
                 continue
             visited.add(current)
-
-            if current in ubs_advisors:
-                continue
 
             new_path = path + [current]
 
@@ -164,30 +154,39 @@ class ProspectMatcher:
 
         return results
 
-    def find_best_fit_clients(self, n_jobs: int = -1) -> pd.DataFrame:
-        print("\n[find_best_fit_clients] Starting with parallel execution...")
+    def find_best_fit_clients(self) -> pd.DataFrame:
+        print("[find_best_fit_clients] Running...")
         G = self.graph
-
         clients = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "Client"}
         ubs_advisors = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "UBS Financial Advisor"}
         prospects = [n for n in self.prospect_ids if G.has_node(n) and G.nodes[n].get("entity_type") == "Prospect"]
-
         clients = clients - set(prospects)
         self.unfound_prospects = [pid for pid in self.prospect_ids if not G.has_node(pid)]
 
-        print(f"-> Prospects: {len(prospects)} | Clients: {len(clients)} | UBS Advisors: {len(ubs_advisors)} | Unfound: {len(self.unfound_prospects)}")
+        results = []
+        for p in prospects:
+            results.extend(self._match_prospect(p, G, clients, ubs_advisors))
 
-        start = time.time()
+        return pd.DataFrame(results)
 
-        nested_results = Parallel(n_jobs=n_jobs, backend='loky', verbose=5)(
-            delayed(self._match_prospect)(p, G, clients, ubs_advisors)
-            for p in prospects
-        )
+    def check_client_connection(self) -> Tuple[List[str], List[str]]:
+        print("[check_client_connection] Splitting connected and disconnected prospects...")
+        G = self.graph.copy()
+        advisors = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "UBS Financial Advisor"}
+        G.remove_edges_from([(u, v) for u, v in G.edges if u in advisors or v in advisors])
+        clients = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "Client"}
 
-        results = [row for sublist in nested_results for row in sublist]
-        result_df = pd.DataFrame(results)
+        visited = set()
+        queue = list(clients)
 
-        print(f"[find_best_fit_clients] Matches found: {result_df['Client'].notnull().sum()} / {len(prospects)}")
-        print(f"[find_best_fit_clients] Completed in {time.time() - start:.2f} seconds")
+        while queue:
+            node = queue.pop()
+            if node in visited:
+                continue
+            visited.add(node)
+            queue.extend([n for n in G.neighbors(node) if n not in visited])
 
-        return result_df
+        connected = [pid for pid in self.prospect_ids if pid in visited]
+        disconnected = [pid for pid in self.prospect_ids if pid not in visited]
+        print(f"[check_client_connection] Connected: {len(connected)}, Disconnected: {len(disconnected)}")
+        return connected, disconnected
