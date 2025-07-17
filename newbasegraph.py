@@ -3,47 +3,35 @@ def load_data(self,
               edges_df: pd.DataFrame = None, 
               prospect_ids: list = None):
     """
-    Load nodes, edges, and prospect IDs into the class.
-    Supports:
-    1. SQL loading (default)
-    2. Custom DataFrame input for nodes and edges
-    3. Optional manual list of prospect IDs
+    Load graph data from either:
+    1. Provided DataFrames (nodes_df, edges_df)
+    2. Or fallback to SQL tables.
+    
+    Prospect IDs:
+    - If `prospect_ids` list is provided, use it directly.
+    - Otherwise, always fetch from prospect table via SQL (even if nodes_df is given).
 
     Sets:
         - self.nodes_df
         - self.edges_df
-        - self.prospect_df (if derivable)
+        - self.prospect_df
         - self.prospect_ids
     """
     import pandas as pd
-    from sqlalchemy import select, literal_column
+    from sqlalchemy import select, literal_column, Table
 
     if nodes_df is not None and edges_df is not None:
-        print("[load_data] Using provided DataFrames.")
+        print("[load_data] Using provided DataFrames for nodes and edges.")
         self.nodes_df = nodes_df.copy()
         self.edges_df = edges_df.copy()
-
-        if prospect_ids is not None:
-            print("[load_data] Using user-provided prospect_ids list.")
-            self.prospect_ids = prospect_ids
-            self.prospect_df = pd.DataFrame({"ID": prospect_ids})
-        else:
-            # Derive from node dataframe
-            self.prospect_df = self.nodes_df[self.nodes_df["entity_type"] == "Prospect"]
-            self.prospect_ids = list(self.prospect_df["ID"].dropna().unique())
-
     else:
-        print("[load_data] Loading from SQL tables.")
+        print("[load_data] Loading nodes and edges from SQL.")
         metadata = self.metadata
-
-        # Reflect schema
         metadata.reflect(bind=self.engine, schema=self.nodes_schema_name, only=[self.nodes_table_name])
         metadata.reflect(bind=self.engine, schema=self.edge_schema_name, only=[self.edge_table_name])
-        metadata.reflect(bind=self.engine, schema=self.prospect_schema, only=[self.prospect_table])
 
         nodes_table = Table(self.nodes_table_name, metadata, autoload_with=self.engine, schema=self.nodes_schema_name)
         edges_table = Table(self.edge_table_name, metadata, autoload_with=self.engine, schema=self.edge_schema_name)
-        prospect_table = Table(self.prospect_table, metadata, autoload_with=self.engine, schema=self.prospect_schema)
 
         nodes_query = select(
             literal_column("ID"),
@@ -58,20 +46,25 @@ def load_data(self,
             literal_column("edge_detail")
         ).select_from(edges_table)
 
+        self.nodes_df = pd.read_sql(nodes_query, self.engine)
+        self.edges_df = pd.read_sql(edges_query, self.engine)
+
+    # --- Always handle prospects separately ---
+    if prospect_ids is not None:
+        print("[load_data] Using provided list of prospect_ids.")
+        self.prospect_ids = prospect_ids
+        self.prospect_df = pd.DataFrame({"ID": prospect_ids})
+    else:
+        print("[load_data] Loading prospect_ids from SQL.")
+        metadata.reflect(bind=self.engine, schema=self.prospect_schema, only=[self.prospect_table])
+        prospect_table = Table(self.prospect_table, metadata, autoload_with=self.engine, schema=self.prospect_schema)
+
         prospect_query = select(
             literal_column(f"{self.prospect_column}")
         ).select_from(prospect_table)
 
-        self.nodes_df = pd.read_sql(nodes_query, self.engine)
-        self.edges_df = pd.read_sql(edges_query, self.engine)
-
-        if prospect_ids is not None:
-            print("[load_data] Using user-provided prospect_ids list.")
-            self.prospect_ids = prospect_ids
-            self.prospect_df = pd.DataFrame({"ID": prospect_ids})
-        else:
-            self.prospect_df = pd.read_sql(prospect_query, self.engine)
-            self.prospect_ids = list(self.prospect_df[self.prospect_column].dropna().unique())
+        self.prospect_df = pd.read_sql(prospect_query, self.engine)
+        self.prospect_ids = list(self.prospect_df[self.prospect_column].dropna().unique())
 
     print(f"[load_data] Nodes: {self.nodes_df.shape}, Edges: {self.edges_df.shape}, Prospects: {len(self.prospect_ids)}")
     
