@@ -103,20 +103,37 @@ class ProspectMatcher:
                 comp_id = self.node_to_component.get(prospect)
                 if comp_id is None:
                     continue
-                best_score = 0
-                best_client = None
-                for client in self.component_clients[comp_id]:
-                    if prospect == client:
-                        continue
-                    score = self._find_paths_and_scores(G, prospect, client, max_depth=max_depth)
-                    if score > best_score:
-                        best_score = score
-                        best_client = client
-                chunk_results.append({
-                    "Prospect": prospect,
-                    "Client": best_client,
-                    "Score": best_score
-                })
+
+                found = False
+                for depth in range(2, max_depth + 1):
+                    scores = {}
+                    for client in self.component_clients[comp_id]:
+                        if prospect == client:
+                            continue
+                        try:
+                            for path in nx.all_simple_paths(G, source=prospect, target=client, cutoff=depth):
+                                score = 1.0
+                                for i in range(len(path) - 1):
+                                    edge_data = G.get_edge_data(path[i], path[i + 1])
+                                    score *= edge_data.get("weight", 1.0)
+                                scores.setdefault(client, 0.0)
+                                scores[client] += score
+                        except nx.NetworkXNoPath:
+                            continue
+
+                    if scores:
+                        max_score = max(scores.values())
+                        best_clients = [client for client, score in scores.items() if score == max_score]
+                        for bc in best_clients:
+                            chunk_results.append({
+                                "Prospect": prospect,
+                                "Client": bc,
+                                "Score": scores[bc],
+                                "Depth": depth
+                            })
+                        found = True
+                        break  # Stop at first depth with valid client
+
             self.results = pd.concat([self.results, pd.DataFrame(chunk_results)], ignore_index=True)
         return self.results
 
