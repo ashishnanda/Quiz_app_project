@@ -63,7 +63,7 @@ class ProspectMatcher:
             self.graph.add_node(row['ID'], **row.to_dict())
 
         for _, row in self.edges_df.iterrows():
-            self.graph.add_edge(row['source'], row['target'], weight=row.get('weight', 1.0))
+            self.graph.add_edge(row['source'], row['target'], **row.to_dict())
 
         self._compute_connected_components()
 
@@ -91,7 +91,6 @@ class ProspectMatcher:
                     continue
                 clients = self.component_clients.get(comp_id, [])
 
-                # Run BFS once
                 try:
                     bfs_levels = nx.single_source_shortest_path_length(G, prospect, cutoff=max_depth)
                 except nx.NetworkXError:
@@ -101,14 +100,18 @@ class ProspectMatcher:
                 for k in range(2, max_depth + 1):
                     level_clients = [n for n, dist in bfs_levels.items() if dist == k and G.nodes[n].get("entity_type") == "Client"]
                     scores = {}
+                    paths_dict = {}
                     for client in level_clients:
                         try:
                             for path in nx.all_simple_paths(G, source=prospect, target=client, cutoff=k):
                                 score = 1.0
+                                path_relationship = {}
                                 for i in range(len(path) - 1):
                                     edge_data = G.get_edge_data(path[i], path[i+1])
                                     score *= edge_data.get('weight', 1.0)
+                                    path_relationship[f"{path[i]} -> {path[i+1]}"] = edge_data
                                 scores.setdefault(client, 0.0)
+                                paths_dict.setdefault(client, []).append(path_relationship)
                                 scores[client] += score
                         except nx.NetworkXNoPath:
                             continue
@@ -117,14 +120,21 @@ class ProspectMatcher:
                         max_score = max(scores.values())
                         best_clients = [client for client, score in scores.items() if score == max_score]
                         for bc in best_clients:
+                            advisors = []
+                            for neighbor in G.neighbors(bc):
+                                if G.nodes[neighbor].get("entity_type") == "Advisor":
+                                    advisors.append(neighbor)
+
                             chunk_results.append({
                                 "Prospect": prospect,
                                 "Client": bc,
                                 "Score": scores[bc],
-                                "Depth": k
+                                "Depth": k,
+                                "Relationship": paths_dict[bc],
+                                "Lead_FA": advisors
                             })
                         found = True
-                        break  # stop at first successful depth
+                        break
 
             self.results = pd.concat([self.results, pd.DataFrame(chunk_results)], ignore_index=True)
         return self.results
