@@ -1,9 +1,8 @@
+# prospect_matcher.py
 import pandas as pd
 import networkx as nx
-import heapq
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 from sqlalchemy import MetaData, Table, select, literal_column
-
 
 class ProspectMatcher:
     def __init__(self,
@@ -15,8 +14,8 @@ class ProspectMatcher:
                  prospect_schema: str,
                  prospect_table: str,
                  prospect_column: str):
+
         self.engine = engine
-        self.metadata = MetaData()
         self.nodes_schema_name = nodes_schema_name
         self.edge_schema_name = edge_schema_name
         self.nodes_table_name = nodes_table_name
@@ -25,102 +24,71 @@ class ProspectMatcher:
         self.prospect_table = prospect_table
         self.prospect_column = prospect_column
 
-        self.nodes_df = None
-        self.edges_df = None
-        self.prospect_df = None
-        self.prospect_ids = []
-        self.unfound_prospects = []
-        self.graph = nx.Graph()
-        self.results = pd.DataFrame()
-
+        self.graph = None
         self.node_to_component = {}
         self.component_clients = {}
-        self.connected_components = []
+        self.prospect_ids = []
+        self.unfound_prospects = []
+        self.results = pd.DataFrame()
 
     def load_data(self,
-                  nodes_df: pd.DataFrame = None,
-                  edges_df: pd.DataFrame = None,
+                  nodes_df: Optional[pd.DataFrame] = None,
+                  edges_df: Optional[pd.DataFrame] = None,
                   prospect_ids: Optional[List[str]] = None):
-        def clean_column_names(df: pd.DataFrame):
-            df.columns = [col.replace('"', '').strip() for col in df.columns]
-            return df
 
-        if nodes_df is not None and edges_df is not None:
-            self.nodes_df = clean_column_names(nodes_df.copy())
-            self.edges_df = clean_column_names(edges_df.copy())
-        else:
-            self.metadata.reflect(bind=self.engine, schema=self.nodes_schema_name, only=[self.nodes_table_name])
-            self.metadata.reflect(bind=self.engine, schema=self.edge_schema_name, only=[self.edge_table_name])
+        if nodes_df is None:
+            query = f'SELECT * FROM "{self.nodes_schema_name}"."{self.nodes_table_name}"'
+            nodes_df = pd.read_sql(query, self.engine)
+        if edges_df is None:
+            query = f'SELECT * FROM "{self.edge_schema_name}"."{self.edge_table_name}"'
+            edges_df = pd.read_sql(query, self.engine)
 
-            nodes_table = Table(self.nodes_table_name, self.metadata, autoload_with=self.engine,
-                                schema=self.nodes_schema_name)
-            edges_table = Table(self.edge_table_name, self.metadata, autoload_with=self.engine,
-                                schema=self.edge_schema_name)
+        # Remove double quotes if present in column names
+        nodes_df.columns = [col.strip('"') for col in nodes_df.columns]
+        edges_df.columns = [col.strip('"') for col in edges_df.columns]
 
-            nodes_query = select(
-                literal_column('"ID"'),
-                literal_column('"Label"'),
-                literal_column('"entity_type"')
-            ).select_from(nodes_table)
-
-            edges_query = select(
-                literal_column('"source"'),
-                literal_column('"target"'),
-                literal_column('"weight"'),
-                literal_column('"edge_detail"')
-            ).select_from(edges_table)
-
-            self.nodes_df = clean_column_names(pd.read_sql(nodes_query, self.engine))
-            self.edges_df = clean_column_names(pd.read_sql(edges_query, self.engine))
+        self.nodes_df = nodes_df
+        self.edges_df = edges_df
 
         if prospect_ids is not None:
             self.prospect_ids = prospect_ids
-            self.prospect_df = pd.DataFrame({self.prospect_column: prospect_ids})
         else:
-            self.metadata.reflect(bind=self.engine, schema=self.prospect_schema, only=[self.prospect_table])
-            prospect_table = Table(self.prospect_table, self.metadata, autoload_with=self.engine,
-                                   schema=self.prospect_schema)
-
-            prospect_query = select(
-                literal_column(f'"{self.prospect_column}"')
-            ).select_from(prospect_table)
-
-            self.prospect_df = clean_column_names(pd.read_sql(prospect_query, self.engine))
-            self.prospect_column = self.prospect_column.replace('"', '').strip()
-            self.prospect_ids = list(self.prospect_df[self.prospect_column].dropna().unique())
+            query = f'SELECT DISTINCT "{self.prospect_column}" FROM "{self.prospect_schema}"."{self.prospect_table}"'
+            df = pd.read_sql(query, self.engine)
+            col = df.columns[0]
+            self.prospect_ids = df[col].dropna().astype(str).tolist()
 
     def build_graph(self):
         self.graph = nx.Graph()
         for _, row in self.nodes_df.iterrows():
-            self.graph.add_node(row["ID"], label=row.get("Label"), entity_type=row.get("entity_type"))
+            self.graph.add_node(row['ID'], **row.to_dict())
+
         for _, row in self.edges_df.iterrows():
-            self.graph.add_edge(row["source"], row["target"],
-                                weight=row.get("weight", 1.0),
-                                edge_detail=row.get("edge_detail"))
+            self.graph.add_edge(row['source'], row['target'], weight=row.get('weight', 1.0))
+
         self._compute_connected_components()
 
     def _compute_connected_components(self):
         self.node_to_component = {}
         self.component_clients = {}
-        self.connected_components = list(nx.connected_components(self.graph))
-        for idx, component in enumerate(self.connected_components):
+        for idx, component in enumerate(nx.connected_components(self.graph)):
+            clients = [n for n in component if self.graph.nodes[n].get("entity_type") == "Client"]
             for node in component:
                 self.node_to_component[node] = idx
-            clients = [n for n in component if self.graph.nodes[n].get("entity_type") == "Client"]
             self.component_clients[idx] = clients
 
-    def _find_paths_and_scores(self, G: nx.Graph, prospect: str, client: str, max_depth: int = 5) -> float:
-        scores = []
+    def _find_paths_and_scores(self, G, source, target, max_depth=5):
+        total_score = 0.0
         try:
-            for path in nx.all_simple_paths(G, source=prospect, target=client, cutoff=max_depth):
+            for path in nx.all_simple_paths(G, source=source, target=target, cutoff=max_depth):
                 score = 1.0
-                for u, v in zip(path[:-1], path[1:]):
-                    edge_data = G.get_edge_data(u, v, default={})
-                    score *= edge_data.get("weight", 1.0)
-                scores.append(score)
+                for i in range(len(path) - 1):
+                    edge_data = G.get_edge_data(path[i], path[i+1])
+                    score *= edge_data.get('weight', 1.0)
+                total_score += score
         except nx.NetworkXNoPath:
-            return 0.0
-        return sum(scores)
+            pass
+        return total_score
 
     def find_best_fit_clients_multiplicative(self, max_depth: int = 5, chunk_size: int = 100) -> pd.DataFrame:
         G = self.graph
@@ -152,74 +120,39 @@ class ProspectMatcher:
             self.results = pd.concat([self.results, pd.DataFrame(chunk_results)], ignore_index=True)
         return self.results
 
-    def _match_prospect_dijkstra(self, prospect: str, G: nx.Graph, clients: set, advisors: set) -> List[dict]:
-        visited = set()
-        heap = [(0, prospect, [])]
-        best_clients = []
-        best_score = float('inf')
-
-        while heap:
-            cum_weight, current, path = heapq.heappop(heap)
-            if current in visited or current in advisors:
-                continue
-            visited.add(current)
-            new_path = path + [current]
-
-            if current in clients and current != prospect:
-                if cum_weight < best_score:
-                    best_score = cum_weight
-                    best_clients = [(current, new_path)]
-                elif cum_weight == best_score:
-                    best_clients.append((current, new_path))
-                continue
-
-            for neighbor in G.neighbors(current):
-                if neighbor not in visited:
-                    edge_data = G.get_edge_data(current, neighbor)
-                    weight = edge_data.get("weight", 1.0)
-                    heapq.heappush(heap, (cum_weight + weight, neighbor, new_path))
-
+    def _match_prospect_dijkstra(self, prospect, G, clients, advisors):
         results = []
-        for client, path in best_clients:
-            relationship = []
-            for i in range(len(path) - 1):
-                u, v = path[i], path[i + 1]
-                edge_data = G.get_edge_data(u, v)
-                edge_desc = edge_data.get("edge_detail", "")
-                relationship.append(f"{u}->{v}: {edge_desc}")
-            results.append({
-                "Prospect": prospect,
-                "Client": client,
-                "Relationship": "; ".join(relationship),
-                "Score": best_score
-            })
+        try:
+            lengths = nx.single_source_dijkstra_path_length(G, prospect)
+        except:
+            return results
 
-        if not best_clients:
-            results.append({
-                "Prospect": prospect,
-                "Client": None,
-                "Relationship": None,
-                "Score": None
-            })
-
+        best_score = float("inf")
+        best_client = None
+        for client in clients:
+            if client in lengths:
+                score = lengths[client]
+                if score < best_score:
+                    best_score = score
+                    best_client = client
+        if best_client:
+            results.append({"Prospect": prospect, "Client": best_client, "Score": best_score})
         return results
 
     def find_best_fit_clients_dijkstra(self, chunk_size: int = 100) -> pd.DataFrame:
         G = self.graph
+        self.results = pd.DataFrame()
+        clients = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "Client"}
         advisors = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "UBS Financial Advisor"}
         prospects = [n for n in self.prospect_ids if G.has_node(n) and G.nodes[n].get("entity_type") == "Prospect"]
+        clients = clients - set(prospects)
         self.unfound_prospects = [pid for pid in self.prospect_ids if not G.has_node(pid)]
-        self.results = pd.DataFrame()
 
         for i in range(0, len(prospects), chunk_size):
             chunk = prospects[i:i + chunk_size]
             chunk_results = []
             for p in chunk:
-                comp_id = self.node_to_component.get(p)
-                if comp_id is None:
-                    continue
-                component_clients = set(self.component_clients[comp_id])
-                chunk_results.extend(self._match_prospect_dijkstra(p, G, component_clients, advisors))
+                chunk_results.extend(self._match_prospect_dijkstra(p, G, clients, advisors))
             self.results = pd.concat([self.results, pd.DataFrame(chunk_results)], ignore_index=True)
         return self.results
 
@@ -227,16 +160,12 @@ class ProspectMatcher:
         G = self.graph.copy()
         advisors = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "UBS Financial Advisor"}
         G.remove_nodes_from(advisors)
+        clients = [n for n, d in G.nodes(data=True) if d.get("entity_type") == "Client"]
 
-        clients = {n for n, d in G.nodes(data=True) if d.get("entity_type") == "Client"}
-        reachable_prospects = set()
-        for client in clients:
-            if G.has_node(client):
-                reachable = nx.single_source_shortest_path_length(G, client)
-                for node in reachable:
-                    if G.nodes[node].get("entity_type") == "Prospect":
-                        reachable_prospects.add(node)
+        reachable_nodes = set()
+        if clients:
+            reachable_nodes = set(nx.multi_source_dijkstra_path_length(G, clients).keys())
 
-        disconnected_prospects = [p for p in self.prospect_ids if p not in reachable_prospects]
-        connected_prospects = [p for p in self.prospect_ids if p in reachable_prospects]
-        return connected_prospects, disconnected_prospects
+        reachable_prospects = [p for p in self.prospect_ids if p in reachable_nodes]
+        disconnected_prospects = [p for p in self.prospect_ids if p not in reachable_nodes]
+        return reachable_prospects, disconnected_prospects
