@@ -2,25 +2,38 @@ import networkx as nx
 import pandas as pd
 
 class GraphBuilder:
-    def __init__(self, edges_df: pd.DataFrame):
+    def __init__(self, edges_df: pd.DataFrame, nodes_df: pd.DataFrame):
+        """
+        Parameters:
+        -----------
+        edges_df : pd.DataFrame
+            Must contain 'source' and 'target' columns.
+        nodes_df : pd.DataFrame
+            Must contain a 'node_id' column representing valid nodes.
+        """
         self.edges_df = edges_df
+        self.nodes_df = nodes_df
 
     def build_graph(self) -> nx.Graph:
         """
-        Constructs a NetworkX graph using only the nodes that appear in the edges table.
+        Constructs a graph using only edges where both source and target are in the nodes table.
 
-        Assumes `edges_df` has two columns: 'source' and 'target'.
+        Returns:
+        --------
+        G : nx.Graph
+            A filtered undirected graph.
         """
-        # Step 1: Build undirected graph from edge list
+        valid_nodes = set(self.nodes_df['node_id'])
+
+        # Filter edges where both nodes are in valid node list
+        filtered_edges = self.edges_df[
+            self.edges_df['source'].isin(valid_nodes) & self.edges_df['target'].isin(valid_nodes)
+        ]
+
+        # Build graph
         G = nx.Graph()
-
-        # Step 2: Add edges (and implicitly, nodes from edges)
-        for _, row in self.edges_df.iterrows():
+        for _, row in filtered_edges.iterrows():
             G.add_edge(row['source'], row['target'])
-
-        # Optional: Explicitly restrict to only nodes that appear in 'source' or 'target'
-        nodes_in_edges = set(self.edges_df['source']).union(set(self.edges_df['target']))
-        G = G.subgraph(nodes_in_edges).copy()  # strictly filter only those nodes
 
         print(f"[INFO] Graph built with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
         return G
