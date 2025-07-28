@@ -9,3 +9,12 @@ legend_html = """
 <div><span style="display:inline-block; width:12px; height:12px; background:cyan; margin-right:5px;"></span> Philanthropy</div>
 </div>
 """
+
+
+return html.Div([
+    html.Div(
+        dcc.Markdown(legend_html, dangerously_allow_html=True),
+        style={"position": "relative", "zIndex": 1000}
+    ),
+    html.Iframe(srcDoc=html_content, style={"height": "600px", "width": "100%", "border": "none"})
+], style={"position": "relative"})
