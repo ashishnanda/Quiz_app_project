@@ -1,0 +1,11 @@
+legend_html = """
+<div style="position: absolute; top: 20px; right: 20px; background: white; border: 1px solid #ccc; padding: 10px; font-size: 14px; border-radius: 5px;">
+<b>Node Types</b><br>
+<div><span style="display:inline-block; width:12px; height:12px; background:red; margin-right:5px;"></span> UBS Financial Advisor</div>
+<div><span style="display:inline-block; width:12px; height:12px; background:blue; margin-right:5px;"></span> Client</div>
+<div><span style="display:inline-block; width:12px; height:12px; background:green; margin-right:5px;"></span> Prospect</div>
+<div><span style="display:inline-block; width:12px; height:12px; background:grey; margin-right:5px;"></span> Organization</div>
+<div><span style="display:inline-block; width:12px; height:12px; background:orange; margin-right:5px;"></span> School</div>
+<div><span style="display:inline-block; width:12px; height:12px; background:cyan; margin-right:5px;"></span> Philanthropy</div>
+</div>
+"""
