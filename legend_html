@@ -1,3 +1,6 @@
+
+
+
 legend_html = """
 <div style="position: absolute; top: 20px; right: 20px; background: white; border: 1px solid #ccc; padding: 10px; font-size: 14px; border-radius: 5px;">
 <b>Node Types</b><br>
@@ -18,3 +21,10 @@ return html.Div([
     ),
     html.Iframe(srcDoc=html_content, style={"height": "600px", "width": "100%", "border": "none"})
 ], style={"position": "relative"})
+
+
+# Return combined Div for Dash
+    return html.Div([
+        html.Div(id="graph-legend", dangerously_allow_html=True, children=legend_html),
+        html.Iframe(srcDoc=graph_html, style={"height": "600px", "width": "100%", "border": "none"})
+    ], style={"position": "relative"})
