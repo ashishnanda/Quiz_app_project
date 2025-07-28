@@ -28,3 +28,30 @@ return html.Div([
         html.Div(id="graph-legend", dangerously_allow_html=True, children=legend_html),
         html.Iframe(srcDoc=graph_html, style={"height": "600px", "width": "100%", "border": "none"})
     ], style={"position": "relative"})
+
+
+  # Legend using pure Dash HTML (NOT Markdown)
+    legend_box = html.Div([
+        html.Strong("Node Types"),
+        html.Div([html.Span(style={"display": "inline-block", "width": "12px", "height": "12px", "background": "red", "marginRight": "5px"}), " UBS Financial Advisor"]),
+        html.Div([html.Span(style={"display": "inline-block", "width": "12px", "height": "12px", "background": "blue", "marginRight": "5px"}), " Client"]),
+        html.Div([html.Span(style={"display": "inline-block", "width": "12px", "height": "12px", "background": "green", "marginRight": "5px"}), " Prospect"]),
+        html.Div([html.Span(style={"display": "inline-block", "width": "12px", "height": "12px", "background": "grey", "marginRight": "5px"}), " Organization"]),
+        html.Div([html.Span(style={"display": "inline-block", "width": "12px", "height": "12px", "background": "orange", "marginRight": "5px"}), " School"]),
+        html.Div([html.Span(style={"display": "inline-block", "width": "12px", "height": "12px", "background": "cyan", "marginRight": "5px"}), " Philanthropy"])
+    ], style={
+        "position": "absolute",
+        "top": "20px",
+        "right": "20px",
+        "background": "#fff",
+        "border": "1px solid #ccc",
+        "padding": "10px",
+        "fontSize": "14px",
+        "borderRadius": "5px",
+        "zIndex": "1000"
+    })
+
+    return html.Div([
+        legend_box,
+        html.Iframe(srcDoc=graph_html, style={"height": "600px", "width": "100%", "border": "none"})
+    ], style={"position": "relative"})
