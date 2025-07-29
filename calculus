@@ -298,3 +298,107 @@ v(b)=100\,b^2
 (on a 0–100 scale).
 
 Question: At x=0, how fast does the chirp volume change?  Compute \displaystyle \frac{dv}{dx}\bigl|_{x=0}.
+
+
+
+Consider the cost function
+C(θ) = ½·(5 – θ)²   +   θ²   +   b·|θ|,
+
+where b is a real parameter. For what critical value of b does the location of the minimizer \theta^ switch from \theta^=0 to a nonzero value?  Give that critical b as a number.
+
+Detailed Solution
+
+We want to find the value of b at which the minimizer of
+
+C(\theta) \;=\; \frac12\,(5-\theta)^2 \;+\;\theta^2\;+\;b\,\bigl|\theta\bigr|
+
+moves off \theta=0.
+
+⸻
+
+1. Write the derivative piecewise
+
+Because of the \bigl|\theta\bigr| term, split into two regions:
+
+⸻
+
+Case A: \theta>0
+
+Here \lvert\theta\rvert=\theta, so
+C(\theta)
+= \tfrac12\,(5-\theta)^2 \;+\;\theta^2 \;+\; b\,\theta.
+Differentiate w.r.t.\ \theta:
+C’(\theta)
+= -(5-\theta)\cdot1 \;+\;2\theta \;+\; b
+= -5 + \theta + 2\theta + b
+= 3\theta + (b - 5).
+Set C’(\theta)=0 to find the interior critical point:
+3\theta + (b - 5)=0
+\quad\Longrightarrow\quad
+\theta^* \;=\;\frac{5 - b}{3}.
+This is valid (i.e.\ \theta^*>0) exactly when
+\frac{5 - b}{3} > 0
+\quad\Longleftrightarrow\quad
+5 - b > 0
+\quad\Longleftrightarrow\quad
+b < 5.
+
+⸻
+
+Case B: \theta<0
+
+Here \lvert\theta\rvert=-\theta, so
+C(\theta)
+= \tfrac12\,(5-\theta)^2 \;+\;\theta^2 \;-\; b\,\theta.
+Differentiate:
+C’(\theta)
+= -(5-\theta)\cdot1 \;+\;2\theta \;-\; b
+= -5 + \theta + 2\theta - b
+= 3\theta - (b + 5).
+Set to zero:
+3\theta - (b + 5)=0
+\quad\Longrightarrow\quad
+\theta^* = \frac{b + 5}{3}.
+This lies in \theta<0 exactly when
+\frac{b + 5}{3} < 0
+\quad\Longleftrightarrow\quad
+b + 5 < 0
+\quad\Longleftrightarrow\quad
+b < -5.
+
+⸻
+
+2. Determining the transition
+	•	If b<5 then the positive‐\theta case yields
+\displaystyle \theta^*=\frac{5 - b}{3}>0.
+	•	If b>-5 then the negative‐\theta case yields no negative solution.
+	•	If -5 \le b \le 5, neither interior critical point lies in the correct half‐line, so the only candidate is \theta=0.
+
+Thus the minimizer jumps off zero precisely when
+b<5.
+The critical value at which it switches is
+\boxed{b=5.}
+
+⸻
+
+3. Check the second derivative
+
+In each region C’’(\theta)=3>0, so each interior solution is indeed a local minimum. At b=5, the positive critical point \theta^*=(5-5)/3=0 collides with the origin—hence the switch.
+
+⸻
+
+Possible Variants
+	1.	General coefficients
+C(\theta) = \tfrac12\,(d-\theta)^2 + a\,\theta^2 + b\,|\theta|,
+where d,a,b are constants.  Ask for the region in the (a,b)‐plane where \theta^*\neq0.
+	2.	Asymmetric linear cost
+Use two penalties b_+\theta for \theta>0 and b_-(-\theta) for \theta<0.  Find when the minimizer is positive, negative, or zero.
+	3.	Higher‐order penalty
+Add a cubic term c\,|\theta|^3.  Find conditions on b,c for a nonzero minimum.
+	4.	Multiple treasure points
+Suppose there are two treasures at positions d_1 and d_2, and travel cost is
+\tfrac12[(d_1-\theta)^2+(d_2-\theta)^2].  Include quadratic and linear setup penalties and find the minimizer.
+	5.	Exponential travel discount
+Replace \tfrac12\,(5-\theta)^2 with \tfrac12\,(5-\theta)^2e^{-k\theta}.  Explore how the critical b depends on k.
+	6.	Multi‐dimensional start
+Let \theta\in\mathbb{R}^n and cost involve \|\mathbf d - \theta\|^2 + a\|\theta\|^2 + b\|\theta\|.  Find when \theta^*\neq\mathbf0.
