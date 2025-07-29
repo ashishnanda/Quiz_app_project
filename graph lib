@@ -1,0 +1,107 @@
+class GraphPipeline:
+    """
+    A configurable pipeline to load graph data from SQL, preprocess it,
+    run analytics, generate embeddings, visualize, and perform similarity search—
+    all with detailed logging, error handling, and experiment tracking.
+
+    Inputs:
+        config_path: str
+            Path to YAML/JSON file containing:
+              - sql: {nodes_table, edges_table, subset_table?}
+              - subset_rules: {mode: 'random'|'by_table'|'by_cc', params: {...}}
+              - embedders: list of {name, module, params}
+              - output_dir: str
+              - logging: {level, filepath}
+        sqlalchemy_engine: sqlalchemy.Engine
+            Already-initialized SQLAlchemy engine for data access.
+        override_params: dict, optional
+            Any parameter overrides to apply on top of the config file.
+
+    Outputs:
+        experiment_metadata: dict
+            Summary of run:
+              - timestamp
+              - config used
+              - models & hyperparams
+              - filtered node/edge counts
+              - embedding metrics (loss, durations)
+        Saved files under output_dir:
+            - raw and preprocessed tables (.csv)
+            - graph test reports (.json)
+            - embedding vectors (.npy/.csv)
+            - PCA plots (.png)
+            - similarity tables (.csv)
+            - full logs (.log)
+            - experiment_metadata.json
+
+    Examples:
+        >>> pipeline = GraphPipeline(
+                config_path="configs/exp1.yaml",
+                sqlalchemy_engine=engine
+            )
+        >>> metadata = pipeline.run()
+        >>> print(metadata['models'])
+        ['Node2Vec(k=10,p=1.0,q=1.0)', 'GINContrastive(alpha=0.5)']
+    """
+
+    def __init__(self, config_path: str, sqlalchemy_engine, override_params: dict = None):
+        self.config = self._load_and_validate_config(config_path, override_params)
+        self.engine = sqlalchemy_engine
+        self.logger = self._init_logger(self.config['logging'])
+        self.tracker = self._start_experiment(self.config)
+
+    def run(self) -> dict:
+        try:
+            # 1. Load tables
+            nodes_df = self._load_table(self.config['sql']['nodes_table'])
+            edges_df = self._load_table(self.config['sql']['edges_table'])
+
+            # 2. Preprocess
+            nodes_df = self._preprocess_ids(nodes_df)
+            edges_df = self._drop_duplicate_edges(edges_df)
+            edges_df = self._standardize_edge_direction(edges_df)
+            nodes_df, edges_df = self._apply_subset_rules(nodes_df, edges_df)
+
+            # 3. Build graph
+            graph = self._build_graph(nodes_df, edges_df)
+
+            # 4. Graph tests
+            graph_stats = self._run_graph_tests(graph)
+            self._save_json(graph_stats, "graph_stats.json")
+
+            # 5. Embeddings
+            all_embeddings = {}
+            for emb_cfg in self.config['embedders']:
+                name = emb_cfg['name']
+                model = self._instantiate_embedder(emb_cfg)
+                vectors, metrics = model.fit_transform(graph)
+                self._save_array(vectors, f"{name}_vectors.npy")
+                self.tracker.log_model(name, emb_cfg['params'], metrics)
+                all_embeddings[name] = vectors
+
+            # 6. Visualization
+            for name, vectors in all_embeddings.items():
+                coords = self._reduce_dimensionality(vectors, method="pca")
+                self._plot_scatter(coords, title=name + " PCA")
+
+            # 7. Similarity search
+            for name, vectors in all_embeddings.items():
+                sim_df = self._compute_topk_neighbors(vectors, k=3)
+                self._save_csv(sim_df, f"{name}_top3.csv")
+
+            # 8. Finalize
+            metadata = self.tracker.finalize()
+            self._save_json(metadata, "experiment_metadata.json")
+            return metadata
+
+        except Exception as e:
+            self.logger.exception("Pipeline failed:")
+            raise
+
+    # --- helper methods below ---
+    # _load_and_validate_config, _init_logger, _start_experiment,
+    # _load_table, _preprocess_ids, _drop_duplicate_edges,
+    # _standardize_edge_direction, _apply_subset_rules,
+    # _build_graph, _run_graph_tests, _instantiate_embedder,
+    # _reduce_dimensionality, _plot_scatter,
+    # _compute_topk_neighbors, _save_json, _save_array, _save_csv
