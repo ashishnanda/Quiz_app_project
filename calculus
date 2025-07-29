@@ -1,3 +1,96 @@
+A Varanasi Boatman’s Tea-Break Dilemma
+
+Boatman Suresh ferries pilgrims along the Ganges to Manikarnika Ghat, located 5 km downstream from his home dock (point 0). He can choose any drop‐off point \theta (even upstream, \theta<0), row there, then walk the rest of the way to the ghat at +5 km.
+
+His total effort costs are:
+	1.	Rowing effort: \tfrac12\,(5 - \theta)^2 (it’s harder to row the farther he goes).
+	2.	Cart‐drag penalty: \theta^2 (his load of puja-items tires him proportional to distance squared).
+	3.	Chai stops: b \times |\theta| (he must sip b cups of chai—each cup costs effort—per km rowed).
+
+So overall:
+\text{Effort}(\theta)
+= \tfrac12\,(5 - \theta)^2 \;+\; \theta^2 \;+\; b\,|\theta|.
+
+Let \theta^*(b) be the drop-off km that minimizes Suresh’s effort for a given tea-rate b.
+
+⸻
+
+The Big Question (Indian Version)
+
+At what tea-rate b^ (cups-of-chai per km) does Suresh’s best strategy “tip” from “not rowing at all” (\theta^=0) to “rowing partway toward the ghat” (\theta^*\neq0)?
+
+
+The Varanasi Boatman’s Wind‐Effect Puzzle
+
+Boatman Suresh ferries pilgrims from his home dock (point 0) downriver to Manikarnika Ghat at point 5. He may choose any drop-off location \theta (measured in km downstream; we assume \theta\ge0), row there, then walk the rest of the way to 5.
+
+His total effort (in abstract “effort-units”) is
+C(\theta)
+\;=\;
+\underbrace{\frac12\,(5 - \theta)^2}{\text{rowing effort}}
+\;+\;
+\underbrace{\theta^2}{\text{load penalty}}
+\;+\;
+\underbrace{b\,\theta}_{\text{wind effect}},
+where:
+	•	b>0 is the extra effort per km when rowing against the wind (headwind),
+	•	b<0 is the effort saved per km when rowing with the wind (tailwind).
+
+We write \theta^*(b) for the value of \theta that minimizes C(\theta).
+
+⸻
+
+Question
+Critical tipping points:  For what values of b does the best drop-off θ* switch from θ*=0 to some θ*≠0?
+
+
+Find the unique value b^* such that:
+	•	For b \ge b^*, the minimizer is \theta^*(b)=0 (best to stay at the dock).
+	•	For b < b^*, the minimizer is \theta^*(b)>0 (best to row partway).
+
+Give b^* as a number.
+
+Detailed Solution (Simple Steps)
+	1.	Split upstream/downstream
+	•	Downstream (θ>0): |θ| = θ
+	•	Upstream   (θ<0): |θ| = –θ
+	2.	Compute the downstream critical point
+	•	For θ>0:
+C(θ) = ½(5−θ)² + θ² + b·θ
+C′(θ)=−(5−θ)+2θ+b = 3θ + (b−5)
+
+•	Set C′=0 ⇒ 3θ + (b−5)=0 ⇒ θ₊ = (5−b)/3
+	•	This “downstream” candidate is valid whenever θ₊>0 ⇔ 5−b>0 ⇔ b<5.
+
+	3.	Compute the upstream critical point (for reference)
+	•	For θ<0:
+C(θ) = ½(5−θ)² + θ² − b·θ
+C′(θ)=−(5−θ)+2θ−b = 3θ − (b+5)
+
+	•	Set C′=0 ⇒ 3θ = b+5 ⇒ θ₋ = (b+5)/3
+	•	This “upstream” candidate would be valid only if θ₋<0 ⇔ b<−5.
+
+	4.	Compare costs at θ₊, θ₋, and θ=0
+	•	At θ=0: C(0)=½·25=12.5.
+	•	At θ₊ (for any b<5), you can plug in and see C(θ₊)<12.5.
+	•	At θ₋ (only for b<−5), you can plug in and find C(θ₋)>C(θ₊).
+In every test (e.g. b=−6,−10), the downstream candidate C(θ₊) is far smaller than C(θ₋).
+	5.	Conclusion
+	•	For b ≥ 5, no positive‐θ critical exists (θ₊≤0), so best is θ*=0.
+	•	For b < 5, the downstream critical θ₊>0 always beats both θ=0 and any upstream θ₋.
+
+Therefore there is only one tipping point:
+
+\boxed{b^* = 5.}
+
+As soon as the head‐wind penalty drops below 5 effort‐units per km, Suresh’s best plan switches from “stay at the dock” to “row partway downstream.”
+
+
+
+
+
+
+
 1A. Treasure Hunt
 A hidden treasure lies at point 5 on a straight path. You choose any real starting point theta. Your total energy cost is:
 	•	Travel cost = 0.5 * (5 – theta) squared
