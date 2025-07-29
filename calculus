@@ -1,0 +1,300 @@
+1A. Treasure Hunt
+A hidden treasure lies at point 5 on a straight path. You choose any real starting point theta. Your total energy cost is:
+	•	Travel cost = 0.5 * (5 – theta) squared
+	•	Setup cost = 0.5 * absolute value of theta
+Which theta makes the total cost smallest?
+
+1B. Two-Stage Treasure Hunt (Variant)
+Same as 1A, but you also carry a 10 kg pack that adds 0.1 * absolute value of theta energy. So total cost = 0.5*(5 – theta)^2 + 0.5*|theta| + 0.1*|theta|.
+Which theta now minimizes cost?
+
+⸻
+
+2A. Composite-Rate Change
+Temperature T at time t follows T = 2t^2 – 3t + 4. The reaction rate R = ln(1 + exp(3*T)).
+Question: At t = 1, how fast is R changing (that is, find dR/dt at t = 1)?
+
+2B. Two-Stage Exponential (Variant)
+Same T as above, but now R = ln(2 + exp(2*T)) + sqrt(T).
+Question: At t = 1, how fast is R changing?
+
+⸻
+
+3A. Best-Fit Triangle under a Sine Curve
+On the interval from x = 0 to x = pi, form a triangle with corners at (0,0), (pi,0), and (x, sin(x)).
+Question: Which x between 0 and pi makes the triangle’s area largest?
+
+3B. Offset-Base Triangle (Variant)
+Now move the base to run from x = a to x = pi + a (for some constant a). The third corner is at (x, sin(x)) with x between a and pi + a.
+Question: In terms of a, which x maximizes the triangle’s area?
+
+⸻
+
+4A. Mirror-Path Minimization
+A lifeguard at A = (0,3) runs to a landing point P = (p,0) on the shore, then swims straight to B = (4,0). Running speed = 5, swimming speed = 2.
+Question: Which p makes total time T = (distance A to P)/5 + (distance P to B)/2 as small as possible?
+
+4B. Angled Shore (Variant)
+Now the shore is the line y = 0.5x. The lifeguard starts at A = (0,3), lands at P = (p, 0.5p), then swims to B = (4,0). Speeds unchanged.
+Question: Which p minimizes T = (distance A to P)/5 + (distance P to B)/2?
+
+⸻
+
+	5.	Fun Chain-Rule Scenario
+A toy robot’s dial is z = 2*x + 1. Its glow intensity is h = tanh(z). Its beep volume is y = h^3.
+Question: At x = 0, how fast does y change with x (that is, find dy/dx at x = 0)?
+
+1A. Treasure Hunt
+
+A hidden treasure lies at point 5 on a straight path. You choose any real starting point \theta. Your total energy cost is
+C(\theta) \;=\; \frac12\,(5 - \theta)^2 \;+\; \frac12\,\bigl|\theta\bigr|.
+Question: Which value of \theta makes C(\theta) as small as possible?
+
+⸻
+
+1B. Two-Stage Treasure Hunt (Variant)
+
+Now you also carry a 10 kg pack that adds 0.1\,|\theta| extra energy. So the new cost is
+C_{\rm new}(\theta)
+= \frac12\,(5 - \theta)^2 \;+\; \frac12\,|\theta| \;+\; 0.1\,|\theta|.
+Question: Which \theta minimizes C_{\rm new}(\theta)?
+
+⸻
+
+2A. Composite-Rate Change
+
+Temperature evolves as
+T(t) \;=\; 2t^2 \;-\; 3t \;+\; 4,
+and the reaction rate is
+R(t) \;=\; \ln\!\bigl(1 + e^{3\,T(t)}\bigr).
+Question: At t=1, how fast is R changing? Compute \dfrac{dR}{dt}\bigl|_{t=1}.
+
+⸻
+
+2B. Two-Stage Exponential Rate (Variant)
+
+Same T(t)=2t^2-3t+4, but now
+R(t) \;=\; \ln\!\bigl(2 + e^{2\,T(t)}\bigr) \;+\;\sqrt{T(t)}.
+Question: At t=1, find \dfrac{dR}{dt}.
+
+⸻
+
+3A. Best-Fit Triangle under a Sine Curve
+
+On the interval 0\le x\le \pi, form a triangle with vertices
+(0,0),\quad (\pi,0),\quad \bigl(x,\sin x\bigr).
+Question: For which x\in(0,\pi) is the triangle’s area largest?
+
+⸻
+
+3B. Offset-Base Triangle (Variant)
+
+Shift the base to endpoints (a,0) and (\pi+a,0), and apex at \bigl(x,\sin x\bigr) with x\in(a,\pi+a).
+Question: In terms of a, find the x that maximizes the triangle’s area.
+
+⸻
+
+4A. Mirror-Path Minimization
+
+A lifeguard at A=(0,3) runs to P=(p,0) at speed 5, then swims to B=(4,0) at speed 2. Total time is
+T(p)
+= \frac{\sqrt{p^2 + 3^2}}{5}
+\;+\;
+\frac{\sqrt{(4-p)^2 + 0^2}}{2}.
+Question: What value 0\le p\le4 minimizes T(p)?
+
+⸻
+
+4B. Angled Shore (Variant)
+
+Now the shore is the line y = 0.5\,x. The lifeguard starts at A=(0,3), lands at
+P = \bigl(p,\,0.5\,p\bigr),
+then swims to B=(4,0). Speeds remain 5 on land and 2 in water.
+T(p)
+= \frac{\sqrt{p^2 + (0.5p-3)^2}}{5}
+\;+\;
+\frac{\sqrt{(4-p)^2 + (0-0.5p)^2}}{2}.
+Question: Find the p that minimizes T(p).
+
+⸻
+
+5. Fun Chain-Rule Scenario
+
+A toy robot’s dial x controls an internal value
+z = 2x + 1,
+which sets glow intensity
+h = \tanh(z),
+and finally beep volume
+y = h^3.
+Question: At x=0, how fast does y change with x? Compute \dfrac{dy}{dx}\bigl|_{x=0}.
+
+
+Solutions
+
+1A.
+	•	Split into cases \theta>0 and \theta<0, handle |\theta| piecewise.
+	•	For \theta>0: C’(\theta)=-(5-\theta)+\tfrac12=0\implies\theta=4.5.
+	•	For \theta<0: no valid critical point.
+	•	Check \theta=0 vs \theta=4.5.
+	•	C(0)=12.5,\;C(4.5)=0.125+2.25=2.375.
+	•	Answer: \displaystyle\theta=4.5.
+
+1B.
+	•	Now setup cost coefficient is 0.5+0.1=0.6.
+	•	Soft-threshold formula gives \theta=5 - 0.6=4.4.
+	•	Answer: \displaystyle\theta=4.4.
+
+⸻
+
+2A.
+	•	T’(t)=4t-3, so T’(1)=1.
+	•	Let u=3\,T(t), so u(1)=9.
+	•	R=\ln(1+e^u)\implies dR/du=\tfrac{e^u}{1+e^u}.
+	•	By chain rule:
+\frac{dR}{dt}
+=\frac{e^u}{1+e^u}\;\cdot\;3\;\cdot\;T’(t)
+=\frac{3\,e^9}{1+e^9}.
+	•	Answer: \;dR/dt\big|_{t=1} = \dfrac{3e^9}{1+e^9}.
+
+2B.
+	•	Still T(1)=3,\;T’(1)=1.
+	•	For R=\ln(2+e^{2T}) + T^{1/2}:
+\frac{dR}{dt}
+=\frac{2\,e^{2T}}{2+e^{2T}}\;T’(t)
+\;+\;\frac{1}{2\sqrt{T}}\,T’(t).
+	•	At t=1:
+=\frac{2\,e^6}{2+e^6}
+\;+\;\frac{1}{2\sqrt{3}}.
+	•	Answer: \displaystyle dR/dt\big|_{1}
+= \frac{2e^6}{2+e^6} \;+\; \frac{1}{2\sqrt3}.
+
+⸻
+
+3A.
+	•	Base length is \pi, height is \sin x. Area = \tfrac12\pi\sin x.
+	•	Maximize \sin x on (0,\pi) ⇒ x=\tfrac\pi2.
+	•	Answer: x=\pi/2.
+
+3B.
+	•	Base length remains \pi; apex height is still \sin x. Area = \tfrac12\pi\sin x.
+	•	Maximize \sin x on (a,a+\pi) ⇒ x=a+\tfrac\pi2.
+	•	Answer: x = a + \tfrac\pi2.
+
+⸻
+
+4A.
+	•	For 0\le p\le4, |4-p|=4-p.
+	•	T(p)=\frac{\sqrt{p^2+9}}5 + \frac{4-p}{2}.
+	•	T’(p)=\frac{p}{5\sqrt{p^2+9}} - \frac12.
+	•	Setting T’(p)=0 leads to no interior root (would require p^2/(p^2+9)>1).
+	•	Compare endpoints:
+	•	T(0)=3/5 + 2 = 2.6.
+	•	T(4)=5/5 + 0 = 1.
+	•	Answer: p=4 (run all the way, no swimming).
+
+4B.
+	•	One similarly differentiates
+T(p)=\frac{\sqrt{p^2+(0.5p-3)^2}}5
++\frac{\sqrt{(4-p)^2+(0.5p)^2}}2,
+sets the derivative to zero, and checks boundaries.
+	•	Numerically T(p) decreases from p=0 to p=4.
+	•	Answer: p=4 again.
+
+⸻
+
+5. Smart Lamp Chain-Rule
+
+We have
+	1.	s=2x+1 ⇒ ds/dx=2.
+	2.	b=\dfrac{s}{1+s} ⇒ db/ds=\dfrac{1}{(1+s)^2}.
+	3.	v=100\,b^2 ⇒ dv/db=200\,b.
+
+By the chain rule,
+\frac{dv}{dx}
+= \frac{dv}{db}\;\frac{db}{ds}\;\frac{ds}{dx}
+= \bigl(200\,b\bigr)\;\frac{1}{(1+s)^2}\;(2).
+At x=0:
+	•	s=2\cdot0+1=1,
+	•	b=\tfrac{1}{1+1}=0.5.
+Thus
+\frac{dv}{dx}\Big|_{x=0}
+= 200\,(0.5)\;\frac{1}{(1+1)^2}\;2
+=100\;\frac{1}{4}\;2
+=50.
+Answer: The lamp’s chirp volume increases at 50 units of volume per radian at x=0.
+
+
+1A. Treasure Hunt
+
+A hidden treasure lies at point 5 on a straight path. You choose any real starting point \theta. Your total energy cost is
+C(\theta)=\frac12\,(5-\theta)^2\;+\;\frac12\,|\theta|.
+Question: For which \theta is C(\theta) minimized?
+
+1B. Two-Stage Treasure Hunt (Variant)
+
+Now you also carry a 10 kg pack that adds 0.1\,|\theta| extra energy. The new cost is
+C_{\rm new}(\theta)
+=\frac12\,(5-\theta)^2\;+\;\frac12\,|\theta|\;+\;0.1\,|\theta|.
+Question: What \theta now minimizes C_{\rm new}(\theta)?
+
+⸻
+
+2A. Composite-Rate Change
+
+Temperature evolves as
+T(t)=2t^2-3t+4,
+and the reaction rate is
+R(t)=\ln\!\bigl(1+e^{\,3\,T(t)}\bigr).
+Question: At t=1, compute \displaystyle \frac{dR}{dt}.
+
+2B. Two-Stage Exponential Rate (Variant)
+
+Same T(t)=2t^2-3t+4, but now
+R(t)=\ln\!\bigl(2+e^{\,2\,T(t)}\bigr)\;+\;\sqrt{T(t)}.
+Question: At t=1, find \displaystyle \frac{dR}{dt}.
+
+⸻
+
+3A. Best-Fit Triangle under a Sine Curve
+
+On the interval 0\le x\le\pi, form a triangle with vertices (0,0), (\pi,0), and \bigl(x,\sin x\bigr).
+Question: For which x\in(0,\pi) is its area largest?
+
+3B. Offset-Base Triangle (Variant)
+
+Shift the base to endpoints (a,0) and (\pi+a,0). The apex is still at \bigl(x,\sin x\bigr), with x\in(a,\pi+a).
+Question: In terms of a, which x maximizes the triangle’s area?
+
+⸻
+
+4A. Mirror-Path Minimization
+
+A lifeguard at A=(0,3) runs to P=(p,0) at speed 5, then swims to B=(4,0) at speed 2. Total time is
+T(p)
+=\frac{\sqrt{p^2+3^2}}5\;+\;\frac{\bigl|4-p\bigr|}{2}.
+Question: For 0\le p\le4, which p minimizes T(p)?
+
+4B. Angled Shore (Variant)
+
+The shore is now the line y=0.5\,x. The lifeguard starts at A=(0,3), lands at
+P=\bigl(p,\;0.5\,p\bigr),
+then swims to B=(4,0). Speeds remain 5 on land and 2 in water.
+T(p)
+=\frac{\sqrt{p^2+(0.5p-3)^2}}5
+\;+\;
+\frac{\sqrt{(4-p)^2+(0-0.5p)^2}}2.
+Question: Which p minimizes T(p)?
+
+⸻
+
+5. Smart Lamp Chain-Rule (Fun Scenario)
+
+You adjust the blinds by an angle x (in radians). A light sensor reading is
+s(x)=2x+1\quad(\text{in “sensor units”}).
+The lamp sets its brightness level to
+b(s)=\frac{s}{1+s}
+(a fraction between 0 and 1), and then emits a notification chirp whose volume is
+v(b)=100\,b^2
+(on a 0–100 scale).
+
+Question: At x=0, how fast does the chirp volume change?  Compute \displaystyle \frac{dv}{dx}\bigl|_{x=0}.
