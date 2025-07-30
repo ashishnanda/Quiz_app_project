@@ -5,7 +5,27 @@ import networkx as nx
 import logging
 import time
 import numpy as np
+from dataclasses import dataclass
+from typing import Optional, Any
 
+@dataclass
+class SQLSource:
+    """
+    Describes a SQL table to read.
+
+    Attributes:
+        table_name: Name of the table in the database.
+        schema: Optional schema name.
+        conn: SQLAlchemy Engine or DBAPI connection object.
+    """
+    table_name: str
+    schema: Optional[str] = None
+    conn: Any = None
+
+# Example usage:
+# from sqlalchemy import create_engine
+# engine = create_engine("sqlite:///test.db")
+# nodes_src = SQLSource(table_name='nodes', schema=None, conn=engine)
 # ----------------------------------------
 # Configuration and result data classes
 # ----------------------------------------
