@@ -5,7 +5,7 @@ from random import choice
 
 fake = Faker('en_IN')
 
-# Pools for controlled randomness
+# Controlled pools
 DEGREE_POOL = ["B.Tech", "M.Tech", "MBA", "MD", "PhD", "B.Sc", "M.Sc"]
 INDUSTRIES   = ["Technology", "Healthcare", "Finance", "Manufacturing", "Retail"]
 RELS         = ["Spouse", "Child", "Parent", "Sibling", "Cousin"]
@@ -19,14 +19,12 @@ def anonymize_business_information(bi: dict) -> dict:
     addr = bi['address']
     addr['city']           = fake.city()
     addr['state']          = fake.state()
-    addr['source']         = fake.word()
-    addr['country']        = fake.country()
     addr['zip_code']       = fake.postcode()
+    addr['country']        = fake.country()
+    addr['source']         = fake.word()
     bi['business_address'] = fake.address().replace("\n", ", ")
-    # <-- change here: pick from INDUSTRIES pool -->
     bi['industry']['value']  = choice(INDUSTRIES)
     bi['industry']['source'] = fake.word()
-    # regenerate list of employee counts
     bi['employees'] = [
         {'value': str(fake.random_int(1, 5000)), 'source': fake.word()}
         for _ in bi.get('employees', [])
@@ -85,8 +83,8 @@ def anonymize_connections(conns: list) -> list:
         nc = deepcopy(c)
         nc['name']              = fake.name()
         nc['group']             = fake.word()
-        nc['source']            = fake.word()
         nc['relationship_type'] = fake.word()
+        nc['source']            = fake.word()
         out.append(nc)
     return out
 
@@ -95,7 +93,6 @@ def anonymize_education(edus: list) -> list:
     for e in edus:
         ne = deepcopy(e)
         ne['institution']   = fake.company() + " University"
-        # <-- change here: pick from DEGREE_POOL -->
         ne['qualification'] = choice(DEGREE_POOL)
         ne['start_date']    = fake.date(pattern="%Y-%m-%d")
         ne['end_date']      = fake.date(pattern="%Y-%m-%d")
@@ -111,11 +108,41 @@ def anonymize_family_details(fd: dict) -> dict:
             nm = deepcopy(m)
             nm['name']         = fake.name()
             nm['age']          = str(fake.random_int(0, 100))
-            # <-- change here: pick from RELS -->
             nm['relationship'] = choice(RELS)
+            nm['source']       = fake.word()
             members.append(nm)
         fd['members'] = members
     return fd
+
+def anonymize_family_office(fo: dict) -> dict:
+    fo = deepcopy(fo)
+    fo['source'] = fake.word()
+    new_members = []
+    for member in fo.get('value', []):
+        m = deepcopy(member)
+        m['name']         = fake.name()
+        m['relationship'] = choice(RELS)
+        m['age']          = str(fake.random_int(0, 100))
+        m['source']       = fake.word()
+        new_members.append(m)
+    fo['value'] = new_members
+    return fo
+
+def anonymize_private_foundation(pf: dict) -> dict:
+    pf = deepcopy(pf)
+    pf['source'] = fake.word()
+    new_list = []
+    for entry in pf.get('value', []):
+        e = deepcopy(entry)
+        e['total_assets'] = f"${fake.random_int(1,50)}M"
+        e['total_income'] = f"${fake.random_int(1,10)}M"
+        e['year']         = int(fake.year())
+        e['phone']        = fake.phone_number()
+        e['address']      = fake.address().replace("\n", ", ")
+        e['source']       = fake.word()
+        new_list.append(e)
+    pf['value'] = new_list
+    return pf
 
 def anonymize_interests(ints: dict) -> dict:
     ints = deepcopy(ints)
@@ -140,16 +167,15 @@ def anonymize_personal_details(pd: dict) -> dict:
 
 def anonymize_net_worth(nw: dict) -> dict:
     nw = deepcopy(nw)
-    new_list = []
-    for item in nw.get('value', []):
-        new_list.append({
-            'year' : fake.date(pattern="%Y"),
-            'name' : fake.company(),
-            'value': f"${fake.random_int(1,10)}M",
-            'phone': fake.phone_number(),
-            'source': fake.word()
-        })
-    nw['value'] = new_list
+    for section, lst in nw.items():
+        if isinstance(lst, list):
+            new_list = []
+            for entry in lst:
+                e = deepcopy(entry)
+                e['value']  = f"${fake.random_int(1,20)}M"
+                e['source'] = fake.word()
+                new_list.append(e)
+            nw[section] = new_list
     return nw
 
 def anonymize_real_estate(re: list) -> list:
@@ -169,7 +195,7 @@ def anonymize_real_estate(re: list) -> list:
 
 def anonymize_row(row: pd.Series) -> pd.Series:
     row = row.copy()
-    # top-level scalars
+    # top‐level
     row['id']        = fake.random_number(digits=10, fix_len=True)
     row['name']      = fake.name()
     row['fa_id']     = fake.random_number(digits=6)
@@ -182,15 +208,17 @@ def anonymize_row(row: pd.Series) -> pd.Series:
     row['connections']          = anonymize_connections(row['connections'])
     row['education']            = anonymize_education(row['education'])
     row['family_details']       = anonymize_family_details(row['family_details'])
+    row['family_office']        = anonymize_family_office(row['family_office'])
+    row['private_foundation']   = anonymize_private_foundation(row['private_foundation'])
     row['interests']            = anonymize_interests(row['interests'])
     row['personal_details']     = anonymize_personal_details(row['personal_details'])
     row['net_worth']            = anonymize_net_worth(row['net_worth'])
     row['real_estate']          = anonymize_real_estate(row['real_estate'])
-    # optional: randomize these or leave as-is
-    row['completeness_score'] = fake.pyfloat(0,1)
-    row['is_favourite']       = fake.boolean()
+    # optional randomization
+    row['completeness_score']   = fake.pyfloat(0,1)
+    row['is_favourite']         = fake.boolean()
     return row
 
-# Usage:
+# Usage (do not run here):
 # df = pd.read_pickle('your_df.pkl')
 # anonymized_df = df.apply(anonymize_row, axis=1)
