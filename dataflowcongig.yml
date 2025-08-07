@@ -1,0 +1,47 @@
+# Database connection
+database:
+  uri: "postgresql://USER:PASSWORD@HOST:PORT/DBNAME"
+
+# Define all of your SQL snippets here.
+# Use {{run_date}} or other placeholders if you like.
+sql_queries:
+  wx_dossier:
+    ingestion_count: |
+      SELECT COUNT(*) AS value
+      FROM dossier
+      WHERE run_date = '{{run_date}}';
+
+    raw_mapping_count: |
+      SELECT COUNT(*) AS value
+      FROM wx_mapping
+      WHERE source_table = 'dossier'
+        AND run_date = '{{run_date}}';
+
+    duplicate_mapping_count: |
+      SELECT COUNT(*) AS value
+      FROM (
+        SELECT dossier_id
+        FROM wx_mapping
+        WHERE run_date = '{{run_date}}'
+        GROUP BY dossier_id
+        HAVING COUNT(DISTINCT internal_client_id) > 1
+      ) AS dup;
+
+    filtered_count: |
+      SELECT COUNT(*) AS value
+      FROM dossier d
+      JOIN (
+        SELECT dossier_id, internal_client_id
+        FROM wx_mapping
+        WHERE run_date = '{{run_date}}'
+      ) m ON d.dossier_id = m.dossier_id
+      WHERE d.is_current = 'Y'
+        AND d.run_date = '{{run_date}}';
+
+    # Loaded count is typically the same as filtered for WX, but you could
+    # add a separate SQL here if you want to track "actually inserted" vs. "filtered"
+    loaded_count: |
+      SELECT COUNT(*) AS value
+      FROM unified_clients
+      WHERE source = 'WX'
+        AND run_date = '{{run_date}}';
