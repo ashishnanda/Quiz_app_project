@@ -119,3 +119,229 @@ g.V({ids_list}).
 
     # --- 6) Stable UX sort ---
     return sorted(output, key=lambda x: (-x["best_fit_indicator"], x["entity_type"], x["name"]))
+    
+    
+    
+    
+    
+    from __future__ import annotations
+
+from collections import defaultdict
+from typing import Any, Dict, List, Iterable
+
+# Try to import the Gremlin error type; fall back to Exception if it's not available
+try:
+    from gremlin_python.driver.protocol import GremlinServerError  # type: ignore
+except Exception:  # pragma: no cover
+    GremlinServerError = Exception  # type: ignore
+
+
+# ---------- Small utilities to make property access safe & readable ----------
+
+def _get_vertex_prop(v: Dict[str, Any], key: str, default: Any = "") -> Any:
+    """
+    Vertices returned in a path usually look like:
+      {'id': '...', 'label': 'Person', 'properties': {'entity_type': [{'id': 'p~1','value':'Client'}], ...}}
+    This helper returns the scalar value if present, else `default`.
+    """
+    props = v.get("properties", {})
+    val = props.get(key)
+    if val is None:
+        return default
+    # Gremlin valueMap(true) often yields a list of dicts with a 'value' key
+    if isinstance(val, list) and val:
+        first = val[0]
+        if isinstance(first, dict) and "value" in first:
+            return first.get("value", default)
+        return first
+    return val
+
+
+def _get_edge_prop(e: Dict[str, Any], key: str, default: Any = "") -> Any:
+    """
+    Edges in a path tend to be dicts like:
+      {'id':'...','label':'knows','inV':'...','outV':'...','properties': {'weight': 1}}
+    Handle both scalar and list-of-dict cases.
+    """
+    props = e.get("properties", {})
+    val = props.get(key, default)
+    if isinstance(val, list) and val:
+        first = val[0]
+        if isinstance(first, dict) and "value" in first:
+            return first.get("value", default)
+        return first
+    return val
+
+
+def _edge_weight(e: Dict[str, Any]) -> float:
+    w = _get_edge_prop(e, "weight", 1)
+    try:
+        return float(w)
+    except Exception:
+        return 1.0
+
+
+def _path_objects(p: Any) -> List[Dict[str, Any]]:
+    """
+    Gremlin 'path()' results often arrive as objects like {'labels': [...], 'objects': [ ... five elements ... ]}
+    Return the list of objects if present, else [].
+    """
+    if isinstance(p, dict):
+        return p.get("objects", []) or p.get("object", []) or []
+    # Some drivers return a tuple/list directly
+    if isinstance(p, (list, tuple)):
+        return list(p)
+    return []
+
+
+# ------------------------------- Gremlin runner -------------------------------
+
+def run_query(gremlin_client, query: str) -> List[Any]:
+    """
+    Submit a Gremlin query and return the fully materialized results list.
+    """
+    try:
+        result_set = gremlin_client.submit(query)
+        return result_set.all().result()
+    except GremlinServerError as e:
+        print(f"❌ Gremlin Server Error: {e}")
+        return []
+
+
+# ----------------------- Main: analyze node relationships ----------------------
+
+def analyze_node_relationships(gremlin_client, input_id: str) -> List[Dict[str, Any]]:
+    """
+    From a given node, find all 2-hop paths that end at Clients or Prospects.
+    - Score client endpoints using the product of the two edge weights.
+    - Track the intermediary node and each hop's relationship label.
+    - Mark the "best-fit" client(s): the one(s) with the maximum score.
+    - For each Client endpoint, also pull a 1-hop Financial Advisor (if any).
+
+    Returns a list of dicts with:
+      id, best_fit_indicator, entity_type, name, lead_financial_advisor,
+      networth, intermediaries, first_hop_relationship, second_hop_relationship
+
+    Sorted with best-fit first, then by entity_type and name.
+    """
+
+    node_id = f"{input_id}"
+
+    # 1) Gremlin: all 2-hop paths from the source to Client/Prospect endpoints.
+    #    - bothE().otherV(): step to an edge then to the opposite vertex (undirected feel)
+    #    - simplePath(): avoid revisiting vertices within the same path
+    #    - times(2): exactly two hops
+    #    - has('entity_type', within('Client','Prospect')): end vertex filter
+    #    - path().dedup(): return unique paths as Path objects
+    query_paths = f"""
+g.V('{node_id}').
+  repeat(bothE().otherV().simplePath()).times(2).
+  has('entity_type', within('Client', 'Prospect')).
+  path().
+  dedup()
+"""
+
+    paths = run_query(gremlin_client, query_paths)
+
+    client_scores: Dict[str, float] = defaultdict(float)
+    entity_data: Dict[str, Dict[str, Any]] = {}
+
+    # 2) Walk each returned path and harvest details
+    for path in paths:
+        objs = _path_objects(path)
+        if len(objs) != 5:
+            # Expecting: start_vertex, edge1, intermediary_vertex, edge2, end_vertex
+            continue
+
+        try:
+            start_node, edge1, intermediate_node, edge2, end_node = objs
+
+            # Skip if the intermediary is a Financial Advisor
+            intermediate_type = _get_vertex_prop(intermediate_node, "entity_type", "")
+            if intermediate_type == "Financial Advisor":
+                continue
+
+            # Key fields from the end vertex
+            end_graph_id = _get_vertex_prop(end_node, "graph_id", end_node.get("id", ""))
+            end_type = _get_vertex_prop(end_node, "entity_type", "")
+            end_label = end_node.get("label", "")
+            networth = _get_vertex_prop(end_node, "networth", "")
+
+            # Edge labels & weights
+            edge1_label = edge1.get("label", "")
+            edge2_label = edge2.get("label", "")
+            edge1_weight = _edge_weight(edge1)
+            edge2_weight = _edge_weight(edge2)
+            path_score = edge1_weight * edge2_weight
+
+            # Intermediary details
+            intermediate_label = intermediate_node.get("label", "")
+
+            # Prepare / update the endpoint's aggregation record
+            if end_graph_id not in entity_data:
+                entity_data[end_graph_id] = {
+                    "id": end_graph_id,
+                    "entity_type": end_type,
+                    "name": end_label,
+                    "networth": networth,
+                    "intermediaries": {},
+                    "first_hop_relationship": {},
+                    "second_hop_relationship": {},
+                }
+
+            entity_data[end_graph_id]["intermediaries"][intermediate_label] = intermediate_type
+            entity_data[end_graph_id]["first_hop_relationship"][intermediate_label] = edge1_label
+            entity_data[end_graph_id]["second_hop_relationship"][intermediate_label] = edge2_label
+
+            # Score only Clients
+            if end_type == "Client":
+                client_scores[end_graph_id] += path_score
+
+        except Exception as e:
+            print(f"Error processing path: {e}")
+            continue
+
+    # 3) Identify best-fit clients: those that tie for the highest score
+    max_score = max(client_scores.values(), default=0)
+    best_fit_clients = {cid for cid, score in client_scores.items() if score == max_score}
+
+    # 4) Build final output records, and for Clients fetch a 1‑hop Financial Advisor
+    output: List[Dict[str, Any]] = []
+    for eid, data in entity_data.items():
+        lead_fa = ""
+        if data["entity_type"] == "Client":
+            advisor_query = f"""
+g.V('{eid}').
+  both().
+  has('entity_type', 'Financial Advisor').
+  dedup().
+  valueMap(true)
+"""
+            advisors = run_query(gremlin_client, advisor_query)
+            if advisors:
+                # First advisor label (valueMap(true) can return a list)
+                first = advisors[0]
+                raw = first.get("label", "")
+                if isinstance(raw, list) and raw:
+                    raw = raw[0]
+                lead_fa = raw or ""
+
+        output.append({
+            "id": eid,
+            "best_fit_indicator": int(eid in best_fit_clients),
+            "entity_type": data["entity_type"],
+            "name": data["name"],
+            "lead_financial_advisor": lead_fa,
+            "networth": data["networth"],
+            "intermediaries": data["intermediaries"],
+            "first_hop_relationship": data["first_hop_relationship"],
+            "second_hop_relationship": data["second_hop_relationship"],
+        })
+
+    # 5) Sort: best‑fit first, then by entity type and name for stable UX
+    sorted_output = sorted(
+        output,
+        key=lambda x: (-x["best_fit_indicator"], x["entity_type"], x["name"])
+    )
+    return sorted_output
+    
