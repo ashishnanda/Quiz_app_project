@@ -345,3 +345,128 @@ g.V('{eid}').
     )
     return sorted_output
     
+    
+    
+from collections import defaultdict
+from typing import Dict, Any, List
+
+def analyze_node_relationships(gremlin_client, input_id: str) -> List[Dict[str, Any]]:
+    """
+    Optimized version:
+      - Uses a flat 'project(...)' traversal (no heavy valueMap/Path objects)
+      - Prunes FA as intermediaries and keeps only Client endpoints (fewer rows)
+      - Batches the 1-hop Financial Advisor lookup for all Clients in one query
+      - Returns rows sorted with best-fit first, then entity_type, then name
+    """
+    node_id = f"{input_id}"
+
+    # --- 1) Compact 2‑hop rows to Clients only; skip FA as intermediary (Cosmos‑safe) ---
+    query_rows = f"""
+g.V('{node_id}').as('s').
+  bothE().as('e1').otherV().as('m').
+    where(values('entity_type').without('Financial Advisor')).
+  bothE().as('e2').otherV().as('end').
+    has('entity_type','Client').
+  project(
+    'start_id','e1_label','e1_weight',
+    'mid_id','mid_label','mid_type',
+    'e2_label','e2_weight',
+    'end_id','end_label','end_type','networth','graph_id'
+  ).
+    by(select('s').id()).
+    by(select('e1').label()).
+    by(coalesce(select('e1').values('weight'), constant(1))).
+    by(select('m').id()).
+    by(select('m').label()).
+    by(select('m').values('entity_type')
+         .fold().coalesce(unfold().limit(1), constant(''))).
+    by(select('e2').label()).
+    by(coalesce(select('e2').values('weight'), constant(1))).
+    by(select('end').id()).
+    by(select('end').label()).
+    by(select('end').values('entity_type')
+         .fold().coalesce(unfold().limit(1), constant(''))).
+    by(select('end').values('networth')
+         .fold().coalesce(unfold().limit(1), constant(''))).
+    by(select('end').values('graph_id')
+         .fold().coalesce(unfold().limit(1), constant('')))
+  .dedup()
+"""
+    rows = run_query(gremlin_client, query_rows)
+
+    client_scores: Dict[str, float] = defaultdict(float)
+    entity_data: Dict[str, Dict[str, Any]] = {}
+
+    # --- 2) Parse + aggregate (cheap Python work) ---
+    for r in rows:
+        end_graph_id = r.get("graph_id") or r["end_id"]
+        end_type     = r["end_type"]         # will be 'Client' by construction
+        end_label    = r["end_label"]
+        networth     = r.get("networth", "")
+        mid_label    = r["mid_label"]
+        mid_type     = r["mid_type"]
+        path_score   = float(r["e1_weight"]) * float(r["e2_weight"])
+
+        rec = entity_data.get(end_graph_id)
+        if rec is None:
+            rec = entity_data[end_graph_id] = {
+                "id": end_graph_id,
+                "entity_type": end_type,
+                "name": end_label,
+                "networth": networth,
+                "intermediaries": {},
+                "first_hop_relationship": {},
+                "second_hop_relationship": {},
+            }
+
+        rec["intermediaries"][mid_label]           = mid_type
+        rec["first_hop_relationship"][mid_label]   = r["e1_label"]
+        rec["second_hop_relationship"][mid_label]  = r["e2_label"]
+
+        # score clients (all endpoints here are Clients)
+        client_scores[end_graph_id] += path_score
+
+    # --- 3) Best‑fit set (ties allowed) ---
+    max_score = max(client_scores.values(), default=0.0)
+    best_fit_clients = {cid for cid, s in client_scores.items() if s == max_score}
+
+    # --- 4) Batch fetch 1‑hop Financial Advisor (ONE traversal for all clients) ---
+    client_ids = list(entity_data.keys())  # all endpoints are Clients
+    fa_by_client: Dict[str, str] = {}
+
+    if client_ids:
+        ids_list = ",".join(f"'{cid}'" for cid in client_ids)
+        advisor_query = f"""
+g.V({ids_list}).as('c').
+  both().
+  has('entity_type','Financial Advisor').
+  group().
+    by(select('c').id()).
+    by(label().fold().coalesce(unfold().limit(1), constant('')))
+"""
+        # Cosmos returns either a dict or [dict]
+        fa_raw = run_query(gremlin_client, advisor_query)
+        if isinstance(fa_raw, list) and fa_raw and isinstance(fa_raw[0], dict):
+            fa_by_client = fa_raw[0]
+        elif isinstance(fa_raw, dict):
+            fa_by_client = fa_raw
+
+    # --- 5) Build final output (no extra round‑trips) ---
+    output: List[Dict[str, Any]] = []
+    for eid, data in entity_data.items():
+        lead_fa = fa_by_client.get(eid, "")
+        output.append({
+            "id": eid,
+            "best_fit_indicator": int(eid in best_fit_clients),
+            "entity_type": data["entity_type"],     # 'Client'
+            "name": data["name"],
+            "lead_financial_advisor": lead_fa,      # element label of FA (e.g., 'Financial Advisor')
+            "networth": data["networth"],
+            "intermediaries": data["intermediaries"],
+            "first_hop_relationship": data["first_hop_relationship"],
+            "second_hop_relationship": data["second_hop_relationship"],
+        })
+
+    # --- 6) Stable UX sort ---
+    return sorted(output, key=lambda x: (-x["best_fit_indicator"], x["entity_type"], x["name"]))
+    
