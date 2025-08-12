@@ -1,0 +1,354 @@
+"""
+sql_to_node2vec.py
+
+End-to-end: Load a graph from SQL (nodes/edges), build a weighted undirected
+NetworkX graph, and train Node2Vec embeddings.
+
+Tables (assumed):
+- nodes:  id (PK, text), label (text, optional), entity_type (text, optional)
+- edges:  source (text), target (text), weight (float, optional)
+
+Notes
+-----
+- Edges are treated as UNDIRECTED. If your edges are directed, switch nx.Graph()
+  to nx.DiGraph() below.
+- If an edge 'weight' is missing or invalid, it defaults to 1.0.
+- node2vec uses 'weight' as transition probabilities when weight_key='weight'.
+
+Dependencies
+------------
+pip install sqlalchemy pandas networkx node2vec
+
+Quick Usage
+-----------
+from sqlalchemy import create_engine
+from sql_to_node2vec import (
+    SQLSource, load_nodes, load_edges, build_graph_from_frames, train_node2vec
+)
+
+engine = create_engine("postgresql+psycopg2://user:pass@host/dbname")
+
+nodes_src = SQLSource("nodes", "graph", engine)
+edges_src = SQLSource("edges", "graph", engine)
+
+nodes_df = load_nodes(nodes_src)  # selects id,label,entity_type
+edges_df = load_edges(edges_src)  # selects source,target,weight
+
+G = build_graph_from_frames(nodes_df, edges_df, use_weights=True, directed=False)
+
+embeddings = train_node2vec(
+    G,
+    dimensions=128,
+    walk_length=30,
+    num_walks=10,
+    p=1.0,
+    q=1.0,
+    window=5,
+    min_count=1,
+    epochs=3,
+    workers=4,
+    seed=42,
+    use_weights=True
+)
+
+# embeddings is a dict: {node_id: np.ndarray}
+"""
+
+from __future__ import annotations
+
+from typing import Optional, Dict, Any
+import pandas as pd
+import numpy as np
+import networkx as nx
+from sqlalchemy.engine import Engine
+
+# node2vec package: https://pypi.org/project/node2vec/
+try:
+    from node2vec import Node2Vec
+except ImportError as e:
+    raise ImportError(
+        "Missing dependency 'node2vec'. Install it with:\n\n"
+        "    pip install node2vec\n"
+    ) from e
+
+
+# =============================== SQL wrapper ===============================
+
+class SQLSource:
+    """
+    Simple wrapper for reading a SQL table using SQLAlchemy.
+
+    Parameters
+    ----------
+    table_name : str
+        Table name (e.g., 'edges').
+    schema_name : str
+        Schema name (e.g., 'public' or 'graph').
+    engine : sqlalchemy.engine.Engine
+        SQLAlchemy engine connected to your database.
+
+    Example
+    -------
+    >>> from sqlalchemy import create_engine
+    >>> engine = create_engine("postgresql+psycopg2://user:pass@host/db")
+    >>> edges_src = SQLSource("edges", "graph", engine)
+    >>> df_edges = edges_src.load(columns=["source","target","weight"])
+    """
+    def __init__(self, table_name: str, schema_name: str, engine: Engine):
+        self.table_name = table_name
+        self.schema_name = schema_name
+        self.engine = engine
+
+    def load(self, columns: Optional[list] = None) -> pd.DataFrame:
+        """
+        Load the table as a DataFrame.
+
+        Parameters
+        ----------
+        columns : list, optional
+            Specific columns to select. If None, selects all.
+
+        Returns
+        -------
+        pd.DataFrame
+        """
+        cols_sql = "*" if columns is None else ", ".join([f'"{c}"' for c in columns])
+        query = f'SELECT {cols_sql} FROM "{self.schema_name}"."{self.table_name}"'
+        return pd.read_sql(query, self.engine)
+
+
+# ============================ Load from SQL ============================
+
+def load_nodes(nodes_src: SQLSource) -> pd.DataFrame:
+    """
+    Load nodes with id, label, entity_type. Missing label/type are allowed.
+
+    Returns
+    -------
+    pd.DataFrame with columns: ['id', 'label', 'entity_type']
+    """
+    df = nodes_src.load(columns=["id", "label", "entity_type"])
+    if "id" not in df.columns:
+        raise ValueError("Nodes table must include an 'id' column.")
+    # Ensure consistent dtypes
+    df["id"] = df["id"].astype(str)
+    if "label" not in df.columns:
+        df["label"] = ""
+    if "entity_type" not in df.columns:
+        df["entity_type"] = ""
+    return df[["id", "label", "entity_type"]]
+
+
+def load_edges(edges_src: SQLSource) -> pd.DataFrame:
+    """
+    Load undirected edges with (source, target, weight).
+
+    Returns
+    -------
+    pd.DataFrame with columns: ['source', 'target', 'weight']
+    """
+    df = edges_src.load(columns=["source", "target", "weight"])
+    for col in ("source", "target"):
+        if col not in df.columns:
+            raise ValueError("Edges table must include 'source' and 'target' columns.")
+    df["source"] = df["source"].astype(str)
+    df["target"] = df["target"].astype(str)
+
+    # Coalesce weight -> float, default 1.0
+    if "weight" not in df.columns:
+        df["weight"] = 1.0
+    else:
+        def _coerce_w(x):
+            try:
+                return float(x)
+            except Exception:
+                return 1.0
+        df["weight"] = df["weight"].apply(_coerce_w)
+
+    # Optionally drop self-loops and exact duplicate rows
+    df = df[df["source"] != df["target"]].copy()
+    df = df.drop_duplicates(subset=["source", "target", "weight"])
+    return df[["source", "target", "weight"]]
+
+
+# ===================== Build NetworkX graph =====================
+
+def build_graph_from_frames(
+    nodes_df: pd.DataFrame,
+    edges_df: pd.DataFrame,
+    use_weights: bool = True,
+    directed: bool = False,
+) -> nx.Graph:
+    """
+    Construct a NetworkX graph from nodes/edges dataframes.
+
+    Parameters
+    ----------
+    nodes_df : pd.DataFrame
+        Must contain columns: id, label, entity_type
+    edges_df : pd.DataFrame
+        Must contain columns: source, target, weight
+    use_weights : bool, default True
+        If True, attaches 'weight' attribute to edges (float).
+    directed : bool, default False
+        If True, builds a directed graph (nx.DiGraph). Otherwise nx.Graph.
+
+    Returns
+    -------
+    nx.Graph (or nx.DiGraph)
+    """
+    G = nx.DiGraph() if directed else nx.Graph()
+
+    # Add nodes with attributes
+    for _, r in nodes_df.iterrows():
+        G.add_node(
+            r["id"],
+            label=r.get("label", ""),
+            entity_type=r.get("entity_type", "")
+        )
+
+    # Add edges with (optional) weights
+    for _, r in edges_df.iterrows():
+        u = r["source"]
+        v = r["target"]
+        w = float(r.get("weight", 1.0)) if use_weights else 1.0
+
+        if G.has_edge(u, v):
+            # If an undirected edge already exists, you can choose to:
+            # - sum weights (accumulate signal), or
+            # - keep max weight, or
+            # - average
+            # Here: sum weights for repeated pairs.
+            G[u][v]["weight"] = float(G[u][v].get("weight", 1.0)) + w
+        else:
+            G.add_edge(u, v, weight=w)
+
+    # Optionally drop isolated nodes if desired
+    # G.remove_nodes_from(list(nx.isolates(G)))
+
+    return G
+
+
+# ===================== Train Node2Vec =====================
+
+def train_node2vec(
+    G: nx.Graph,
+    *,
+    dimensions: int = 128,
+    walk_length: int = 30,
+    num_walks: int = 10,
+    p: float = 1.0,
+    q: float = 1.0,
+    window: int = 5,
+    min_count: int = 1,
+    epochs: int = 3,
+    workers: int = 4,
+    seed: int = 42,
+    use_weights: bool = True,
+) -> Dict[str, np.ndarray]:
+    """
+    Train Node2Vec embeddings over a NetworkX graph.
+
+    Parameters
+    ----------
+    G : nx.Graph
+        The graph (undirected or directed).
+    dimensions : int
+        Embedding dimensionality (64/128/256 are common).
+    walk_length : int
+        Length of each random walk.
+    num_walks : int
+        Number of walks per node.
+    p : float
+        Return hyperparameter (1.0 = unbiased).
+    q : float
+        In-out hyperparameter (1.0 = unbiased).
+    window : int
+        Skip-gram window size.
+    min_count : int
+        Minimum count for word2vec vocabulary (keep 1).
+    epochs : int
+        Training epochs for skip-gram.
+    workers : int
+        Worker threads for training.
+    seed : int
+        Random seed (reproducibility).
+    use_weights : bool
+        If True, use edge attribute 'weight' in transition probabilities.
+
+    Returns
+    -------
+    Dict[str, np.ndarray]
+        Mapping: node_id -> embedding vector (np.ndarray of length `dimensions`)
+    """
+    np.random.seed(seed)
+
+    n2v = Node2Vec(
+        G,
+        dimensions=dimensions,
+        walk_length=walk_length,
+        num_walks=num_walks,
+        p=p,
+        q=q,
+        weight_key=("weight" if use_weights else None),
+        workers=workers,
+        seed=seed,
+        quiet=True,
+    )
+
+    model = n2v.fit(
+        window=window,
+        min_count=min_count,
+        batch_words=1024,
+        epochs=epochs,
+    )
+
+    # Extract embeddings into a pure dict: id -> np.ndarray
+    embeddings: Dict[str, np.ndarray] = {}
+    for node in G.nodes():
+        if node in model.wv:
+            embeddings[node] = np.asarray(model.wv[node])
+    return embeddings
+
+
+# ===================== Optional: quick test harness =====================
+
+if __name__ == "__main__":
+    """
+    Example run (adjust connection string, schema, and table names as needed).
+    """
+    from sqlalchemy import create_engine
+
+    # 1) Connect
+    engine = create_engine("postgresql+psycopg2://user:pass@host/dbname")
+
+    # 2) Define sources
+    nodes_src = SQLSource(table_name="nodes", schema_name="graph", engine=engine)
+    edges_src = SQLSource(table_name="edges", schema_name="graph", engine=engine)
+
+    # 3) Load
+    nodes_df = load_nodes(nodes_src)
+    edges_df = load_edges(edges_src)
+
+    print(f"Loaded {len(nodes_df)} nodes and {len(edges_df)} edges from SQL.")
+
+    # 4) Build graph
+    G = build_graph_from_frames(nodes_df, edges_df, use_weights=True, directed=False)
+    print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges.")
+
+    # 5) Train Node2Vec
+    embeddings = train_node2vec(
+        G,
+        dimensions=128,
+        walk_length=30,
+        num_walks=10,
+        p=1.0,
+        q=1.0,
+        window=5,
+        min_count=1,
+        epochs=3,
+        workers=4,
+        seed=42,
+        use_weights=True,
+    )
+    print(f"Trained embeddings for {len(embeddings)} nodes.")
