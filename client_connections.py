@@ -3,57 +3,61 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import uuid
-import numpy as np
 import pandas as pd
 import networkx as nx
 
 import dash
-from dash import html, dcc, Input, Output, State, dash_table, callback_context
+from dash import html, dcc, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
 
+from dash.dash_table import Format  # for numeric display in DataTable
 from pyvis.network import Network
 
-# --------------------------------------------------------------------------------------
-# 0) Demo data loader (replace with your SQL/Cosmos hydrator)
-# --------------------------------------------------------------------------------------
+
+# ----------------------------- Demo data (replace with your SQL/Cosmos load) -----------------------------
 def demo_connections_df() -> pd.DataFrame:
     rows = [
-        # Focal client: Jamie Rose
         dict(client_id="C001", client_name="Jamie Rose", primary_ace="Greta Clark",
-             est_aum=2170000.0, est_wei=56750000.0,
+             est_aum=2_170_000, est_nw=56_750_000,
              connection_name="Adam Wiles", connection_type="School Board",
              organization="NYU; Red Cross of New York", score=4.83, is_client=True,
              role="Secretary", since_year=2009, city="Norwalk, CT"),
 
         dict(client_id="C001", client_name="Jamie Rose", primary_ace="Greta Clark",
-             est_aum=2170000.0, est_wei=56750000.0,
+             est_aum=2_170_000, est_nw=56_750_000,
              connection_name="Marion Bishop", connection_type="Board (Corporate)",
              organization="Adobe Systems", score=4.66, is_client=False,
              role="Director", since_year=2017, city="NYC"),
 
         dict(client_id="C001", client_name="Jamie Rose", primary_ace="Greta Clark",
-             est_aum=2170000.0, est_wei=56750000.0,
+             est_aum=2_170_000, est_nw=56_750_000,
              connection_name="Steven Walker", connection_type="School",
              organization="NYU", score=4.61, is_client=False,
              role="", since_year=2003, city="NYC"),
 
         dict(client_id="C001", client_name="Jamie Rose", primary_ace="Greta Clark",
-             est_aum=2170000.0, est_wei=56750000.0,
+             est_aum=2_170_000, est_nw=56_750_000,
              connection_name="John Phillips", connection_type="Employer",
-             organization="Champion Health", score=4.6, is_client=False,
+             organization="Champion Health", score=4.60, is_client=False,
              role="VP", since_year=2014, city="Boston"),
 
         dict(client_id="C001", client_name="Jamie Rose", primary_ace="Greta Clark",
-             est_aum=2170000.0, est_wei=56750000.0,
+             est_aum=2_170_000, est_nw=56_750_000,
              connection_name="Martin Reed", connection_type="Board (Charitable)",
              organization="Red Cross of New York", score=4.58, is_client=False,
              role="Chair", since_year=2015, city="NYC"),
     ]
     return pd.DataFrame(rows)
 
-# --------------------------------------------------------------------------------------
-# 1) UI components
-# --------------------------------------------------------------------------------------
+
+# ----------------------------- Helpers -----------------------------
+def build_client_options(df: pd.DataFrame):
+    if df.empty or not {"client_id", "client_name"}.issubset(df.columns):
+        return []
+    d = df[["client_id", "client_name"]].drop_duplicates().astype(str)
+    return [{"value": v, "label": f"{n} ({v})"} for v, n in zip(d.client_id, d.client_name)]
+
+
 def make_header():
     return dbc.Row(
         [
@@ -73,14 +77,9 @@ def make_header():
         align="center", className="mb-2",
     )
 
+
 def make_filters(df: pd.DataFrame):
-    client_options = (
-        df[["client_id", "client_name"]]
-        .drop_duplicates()
-        .assign(label=lambda d: d["client_name"] + " (" + d["client_id"] + ")")
-        .rename(columns={"client_id": "value", "label": "label"})
-        .to_dict("records")
-    )
+    client_options = build_client_options(df)
     return dbc.Card(
         dbc.CardBody(
             [
@@ -114,8 +113,10 @@ def make_filters(df: pd.DataFrame):
                         dbc.Col(
                             [
                                 dbc.Label("Min score"),
-                                dcc.Slider(id="min-score", min=0, max=5, step=0.1, value=4.3,
-                                           tooltip={"always_visible": False}),
+                                dcc.Slider(
+                                    id="min-score", min=0, max=5, step=0.1, value=4.3,
+                                    marks={i: str(i) for i in range(0, 6)},
+                                ),
                             ],
                             md=3,
                         ),
@@ -127,23 +128,17 @@ def make_filters(df: pd.DataFrame):
         className="mb-3 shadow-sm",
     )
 
+
 def make_client_stats():
     return dbc.Card(
         dbc.CardBody(
             [
                 html.H5(id="client-name", className="mb-1"),
+                html.Div([html.Span("Primary ACE: "), html.B(id="client-ace")]),
                 html.Div(
                     [
-                        html.Span("Primary ACE: "),
-                        html.B(id="client-ace"),
-                    ]
-                ),
-                html.Div(
-                    [
-                        html.Span("Estimated AUM: "),
-                        html.B(id="client-aum"),
-                        html.Span(" • Estimated Net Worth: "),
-                        html.B(id="client-nw"),
+                        html.Span("Estimated AUM: "), html.B(id="client-aum"),
+                        html.Span(" • Estimated Net Worth: "), html.B(id="client-nw"),
                     ]
                 ),
             ]
@@ -151,12 +146,14 @@ def make_client_stats():
         className="mb-2 shadow-sm",
     )
 
+
 def make_table():
     columns = [
         {"name": "Name", "id": "connection_name"},
         {"name": "Connection Type", "id": "connection_type"},
         {"name": "Organization", "id": "organization"},
-        {"name": "Score", "id": "score", "type": "numeric", "format": dash_table.Format(precision=2)},
+        {"name": "Score", "id": "score", "type": "numeric",
+         "format": Format(precision=2, scheme=Format.Scheme.fixed)},
         {"name": "Client?", "id": "is_client"},
         {"name": "Role", "id": "role"},
         {"name": "Since", "id": "since_year"},
@@ -175,85 +172,80 @@ def make_table():
         selected_rows=[],
     )
 
+
 def make_graph_card():
     return dbc.Card(
-        dbc.CardBody(
-            [
-                html.Div(
-                    [
-                        html.H6("Connections graph", className="mb-2"),
-                        html.Div(id="graph-container"),
-                    ]
-                )
-            ]
-        ),
+        dbc.CardBody([html.H6("Connections graph", className="mb-2"), html.Div(id="graph-container")]),
         className="shadow-sm",
         style={"minHeight": "520px"},
     )
 
-# --------------------------------------------------------------------------------------
-# 2) Graph builder (PyVis → HTML string → Iframe)
-# --------------------------------------------------------------------------------------
+
+# ----------------------------- Graph builder -----------------------------
 def build_pyvis_graph_html(df_for_client: pd.DataFrame, focus_selection: str | None) -> str:
     """
-    Build an ego network centered at the focal client.
-    - df_for_client: subset for a single client
-    - focus_selection: connection_name to emphasize (from table selection)
-    Returns inline HTML for embedding in an Iframe.
+    Build an ego graph centered at client_name from df_for_client (one client subset).
     """
     if df_for_client.empty:
         return "<div style='padding:1rem'>No data</div>"
 
-    focal = df_for_client.iloc[0]["client_name"]
+    focal = str(df_for_client.iloc[0]["client_name"])
     G = nx.Graph()
     G.add_node(focal, kind="client")
 
-    # Add neighbors
     for _, r in df_for_client.iterrows():
-        node_label = r["connection_name"]
+        node_label = str(r["connection_name"])
         G.add_node(
             node_label,
-            kind=("client" if r.get("is_client", False) else "connection"),
-            title=f"{r['connection_type']}<br>{r['organization']}",
+            kind=("client" if bool(r.get("is_client", False)) else "connection"),
+            title=f"{r.get('connection_type','')}<br>{r.get('organization','')}",
         )
-        # Edge carries score & role
-        G.add_edge(focal, node_label, weight=float(r["score"]), label=str(r.get("role", "")))
+        G.add_edge(focal, node_label,
+                   weight=float(r.get("score", 0) or 0),
+                   label=str(r.get("role", "")))
 
-    # PyVis rendering
-    net = Network(height="520px", width="100%", bgcolor="#ffffff", font_color="#333333", notebook=False, directed=False)
+    net = Network(height="520px", width="100%", bgcolor="#ffffff", font_color="#333333",
+                  notebook=False, directed=False)
     net.barnes_hut(gravity=-20000, central_gravity=0.3, spring_length=180, spring_strength=0.015)
 
-    # Translate from NetworkX
+    # Nodes
     for n, attrs in G.nodes(data=True):
         size = 28 if attrs["kind"] == "client" else 16
         border = 4 if attrs["kind"] == "client" else 1
         color = "#CC0000" if attrs["kind"] == "client" else "#8fbff6"
         if focus_selection and n == focus_selection:
-            size = 26
-            border = 4
-            color = "#f6a623"  # highlight pick
+            size, border, color = 26, 4, "#f6a623"
+        net.add_node(n, label=n, title=attrs.get("title", n), size=size,
+                     borderWidth=border, color=color)
 
-        net.add_node(n, label=n, title=attrs.get("title", n), size=size, borderWidth=border, color=color)
-
+    # Edges
     for s, t, attrs in G.edges(data=True):
-        width = 1 + (attrs.get("weight", 0) or 0)  # map score ~ [0..5] → [1..6]
-        net.add_edge(s, t, value=width, title=f"Score {attrs.get('weight','')}; {attrs.get('label','')}", width=width)
+        width = 1 + (attrs.get("weight", 0) or 0)  # map score -> width
+        net.add_edge(s, t, value=width,
+                     title=f"Score {attrs.get('weight','')}; {attrs.get('label','')}",
+                     width=width)
 
-    # Static physics toggle + fit
+    # Valid JSON (not JS) for options; or comment this out to use defaults
     net.set_options("""
-    const options = {
-      nodes: { shape: "dot" },
-      interaction: { hover: true },
-      physics: { stabilization: true }
+    {
+      "nodes": { "shape": "dot" },
+      "interaction": { "hover": true },
+      "physics": { "stabilization": true }
     }
     """)
 
-    # Export to HTML string
-    return net.generate_html(notebook=False)
+    # Return HTML string robustly across pyvis versions
+    try:
+        return net.generate_html(notebook=False)
+    except Exception:
+        from pathlib import Path
+        import tempfile
+        tmp = Path(tempfile.gettempdir()) / f"pyvis_{uuid.uuid4().hex}.html"
+        net.write_html(tmp, notebook=False)
+        return tmp.read_text(encoding="utf-8")
 
-# --------------------------------------------------------------------------------------
-# 3) Dash app
-# --------------------------------------------------------------------------------------
+
+# ----------------------------- App layout -----------------------------
 df = demo_connections_df()
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
@@ -265,17 +257,8 @@ app.layout = dbc.Container(
         make_filters(df),
         dbc.Row(
             [
-                dbc.Col(
-                    [
-                        make_client_stats(),
-                        dbc.Card(dbc.CardBody([make_table()])),
-                    ],
-                    md=7,
-                ),
-                dbc.Col(
-                    [make_graph_card()],
-                    md=5,
-                ),
+                dbc.Col([make_client_stats(), dbc.Card(dbc.CardBody([make_table()]))], md=7),
+                dbc.Col([make_graph_card()], md=5),
             ],
             className="g-3",
         ),
@@ -284,9 +267,8 @@ app.layout = dbc.Container(
     fluid=True,
 )
 
-# --------------------------------------------------------------------------------------
-# 4) Callbacks
-# --------------------------------------------------------------------------------------
+
+# ----------------------------- Callbacks -----------------------------
 @app.callback(
     Output("conn-table", "data"),
     Output("client-name", "children"),
@@ -299,20 +281,19 @@ app.layout = dbc.Container(
     Input("min-score", "value"),
 )
 def update_table(all_rows, client_id, query, min_score):
-    df_all = pd.DataFrame(all_rows)
+    df_all = pd.DataFrame(all_rows or [])
     d = df_all[df_all["client_id"] == client_id].copy()
 
-    # Update header stats from first row
     if d.empty:
         return [], "", "", "", ""
 
-    # text search (name/org/type contains)
+    # text search
     if query:
-        q = query.lower()
+        q = str(query).lower()
         mask = (
-            d["connection_name"].str.lower().str.contains(q)
-            | d["organization"].str.lower().str.contains(q)
-            | d["connection_type"].str.lower().str.contains(q)
+            d["connection_name"].str.lower().str.contains(q, na=False)
+            | d["organization"].str.lower().str.contains(q, na=False)
+            | d["connection_type"].str.lower().str.contains(q, na=False)
         )
         d = d[mask]
 
@@ -320,20 +301,18 @@ def update_table(all_rows, client_id, query, min_score):
     if min_score is not None:
         d = d[d["score"] >= float(min_score)]
 
-    # format booleans as Yes/No
+    # boolean pretty
     if "is_client" in d.columns:
         d["is_client"] = d["is_client"].map({True: "Yes", False: "No"})
 
-    # client header fields
+    # header
     r0 = df_all[df_all["client_id"] == client_id].iloc[0]
-    client_name = r0["client_name"]
+    client_name = r0.get("client_name", "")
     ace = r0.get("primary_ace", "")
-    aum = f"${r0.get('est_aum', 0):,.0f}"
-    nw = f"${r0.get('est_wei', 0):,.0f}"
+    aum = f"${float(r0.get('est_aum', 0)):,.0f}"
+    nw = f"${float(r0.get('est_nw', 0)):,.0f}"
 
-    # table sort default by score desc for nicer UX
     d = d.sort_values("score", ascending=False)
-
     return d.to_dict("records"), client_name, ace, aum, nw
 
 
@@ -343,27 +322,23 @@ def update_table(all_rows, client_id, query, min_score):
     Input("conn-table", "selected_rows"),
 )
 def update_graph(table_rows, selected_rows):
-    d = pd.DataFrame(table_rows)
-    if d.empty:
-        return html.Div("No connections found", style={"padding": "1rem"})
+    try:
+        d = pd.DataFrame(table_rows or [])
+        if d.empty:
+            return html.Div("No connections found", style={"padding": "1rem"})
+        focus = None
+        if selected_rows and len(selected_rows) > 0:
+            focus = str(d.iloc[selected_rows[0]]["connection_name"])
+        html_str = build_pyvis_graph_html(d, focus)
+        return html.Iframe(
+            srcDoc=html_str,
+            style={"width": "100%", "height": "520px", "border": "0"},
+            sandbox="allow-scripts allow-same-origin",
+        )
+    except Exception as e:
+        return html.Pre(f"Graph failed: {e}", style={"color": "crimson", "whiteSpace": "pre-wrap"})
 
-    focus = None
-    if selected_rows:
-        try:
-            focus = d.iloc[selected_rows[0]]["connection_name"]
-        except Exception:
-            focus = None
 
-    html_str = build_pyvis_graph_html(d, focus)
-    # Embed as Iframe using srcDoc
-    return html.Iframe(
-        srcDoc=html_str,
-        style={"width": "100%", "height": "520px", "border": "0"},
-        sandbox="allow-scripts allow-same-origin",
-    )
-
-# --------------------------------------------------------------------------------------
-# 5) Main
-# --------------------------------------------------------------------------------------
+# ----------------------------- Main -----------------------------
 if __name__ == "__main__":
     app.run_server(debug=True)
