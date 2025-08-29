@@ -14,15 +14,18 @@ import dash_bootstrap_components as dbc
 from pyvis.network import Network
 
 # -------------------------------
-# GLOBAL COLORS & LEGEND SETTINGS
+# GLOBAL LABELS & COLORS (edit me)
 # -------------------------------
+LEFT_PANEL_TITLE = "Find Clients & Connections"      # ← pick from suggestions
+CONNECTED_THROUGH_LABEL = "Connected through"       # ← "Shared ties" / "Common links"
+
 COLOR_CLIENT = "#CC0000"     # red
 COLOR_CONN   = "#2ca58d"     # teal
 
 # Editable: org-type -> color (used in graph & legend)
 ORG_TYPE_COLORS = {
-    "School":           "#4c9aff",
     "Organisation":     "#8fbff6",
+    "School":           "#4c9aff",
     "Philanthropy":     "#f39c12",
     "Business Address": "#9b59b6",
     "Interest&Hobby":   "#27ae60",
@@ -63,19 +66,16 @@ def demo_connections_df() -> pd.DataFrame:
              connection_name="Adam Wiles", connection_est_nw=12_300_000,
              organization="Red Cross of New York", org_type="Philanthropy", score=4.83,
              client_org_relation="Donor/Chair", conn_org_relation="Secretary"),
-
         dict(client_id="C001", client_name="Jamie Rose", client_is_fav=1, primary_ace="Greta Clark",
              est_aum=2_170_000, client_est_nw=56_750_000,
              connection_name="Marion Bishop", connection_est_nw=4_600_000,
              organization="Adobe Systems", org_type="Organisation", score=4.66,
              client_org_relation="Independent Director", conn_org_relation="Director"),
-
         dict(client_id="C001", client_name="Jamie Rose", client_is_fav=1, primary_ace="Greta Clark",
              est_aum=2_170_000, client_est_nw=56_750_000,
              connection_name="Steven Walker", connection_est_nw=2_150_000,
              organization="NYU", org_type="School", score=4.61,
              client_org_relation="Alumnus", conn_org_relation="Alumnus"),
-
         dict(client_id="C001", client_name="Jamie Rose", client_is_fav=1, primary_ace="Greta Clark",
              est_aum=2_170_000, client_est_nw=56_750_000,
              connection_name="John Phillips", connection_est_nw=3_900_000,
@@ -93,13 +93,11 @@ def demo_connections_df() -> pd.DataFrame:
              connection_name="Rohan Mehta", connection_est_nw=21_000_000,
              organization="IIT Bombay Alumni Association", org_type="School", score=4.30,
              client_org_relation="Alumnus", conn_org_relation="CFA; Alumnus"),
-
         dict(client_id="C002", client_name="Ava Patel", client_is_fav=1, primary_ace="Daniel Ortiz",
              est_aum=4_500_000, client_est_nw=84_200_000,
              connection_name="Grace Lin", connection_est_nw=5_400_000,
              organization="Girls Who Code", org_type="Philanthropy", score=4.52,
              client_org_relation="Patron/Board", conn_org_relation="Chapter Lead"),
-
         dict(client_id="C002", client_name="Ava Patel", client_is_fav=1, primary_ace="Daniel Ortiz",
              est_aum=4_500_000, client_est_nw=84_200_000,
              connection_name="Leo Fischer", connection_est_nw=7_200_000,
@@ -117,7 +115,6 @@ def demo_connections_df() -> pd.DataFrame:
              connection_name="Noah Garcia", connection_est_nw=1_900_000,
              organization="IEEE", org_type="Organisation", score=4.10,
              client_org_relation="Senior Member", conn_org_relation="Member"),
-
         dict(client_id="C003", client_name="Liam Chen", client_is_fav=0, primary_ace="Amelia Brown",
              est_aum=1_250_000, client_est_nw=32_600_000,
              connection_name="Sophia Rossi", connection_est_nw=9_800_000,
@@ -139,6 +136,7 @@ def search_panel(df: pd.DataFrame) -> dbc.Card:
     client_options = build_client_options(df)
     body = dbc.CardBody(
         [
+            html.H6(LEFT_PANEL_TITLE, className="mb-3"),
             dbc.Label("Search Client"),
             dcc.Dropdown(
                 id="client-dd",
@@ -187,21 +185,9 @@ def favorites_panel(df: pd.DataFrame) -> dbc.Card:
     return dbc.Card(body, className="shadow-sm")
 
 def make_header():
+    # data-status badges removed per request
     return dbc.Row(
-        [
-            dbc.Col(html.H4("Visualizing client connections", className="mb-0"), md=8),
-            dbc.Col(
-                html.Div(
-                    [
-                        html.Span("Data status: "),
-                        dbc.Badge("3rd party / AI-driven", color="secondary", className="me-1"),
-                        dbc.Badge("Advisor-confirmed", color="success"),
-                    ],
-                    className="text-end",
-                ),
-                md=4,
-            ),
-        ],
+        [dbc.Col(html.H4("Visualizing client connections", className="mb-0"), md=12)],
         align="center", className="mb-2",
     )
 
@@ -217,7 +203,6 @@ def make_client_stats():
         dbc.CardBody(
             [
                 html.H5(id="client-name", className="mb-2"),
-
                 html.Div(
                     [
                         html.Span(["Primary Advisor: ", html.B(id="client-ace")], style=segment_style),
@@ -232,7 +217,6 @@ def make_client_stats():
     )
 
 def make_table():
-    # one row per connection, aggregated fields
     columns = [
         {"name": "Name", "id": "connection_name"},
         {"name": "Organizations", "id": "orgs_concat"},
@@ -255,19 +239,24 @@ def make_table():
     )
 
 def legend_box():
-    def dot(c): 
+    def dot(c):
         return html.Span(style={"display": "inline-block", "width": "10px", "height": "10px",
                                 "borderRadius": "50%", "background": c, "marginRight": "6px"})
-    # dynamic org-type legends from ORG_TYPE_COLORS
-    org_legend = [html.Small([dot(org_color(k)), k], className="me-3") for k in ORG_TYPE_COLORS.keys()]
-    # add client & connection entries
-    head = [
-        html.Small([dot(COLOR_CLIENT), "Client"], className="me-3"),
-        html.Small([dot(COLOR_CONN), "Connection"], className="me-3"),
-        html.Span("•", className="mx-2 text-muted"),
-        html.Small("Organizations:", className="me-2"),
-    ]
-    return html.Div(head + org_legend, className="mb-2")
+    # line 1: client + connection
+    line1 = html.Div(
+        [
+            html.Small([dot(COLOR_CLIENT), "Client"], className="me-3"),
+            html.Small([dot(COLOR_CONN), "Connection"], className="me-3"),
+        ],
+        className="mb-1"
+    )
+    # line 2: Connected through + org-type chips in custom order
+    # ensure Organisation appears before School
+    ordered_types = ["Organisation", "School", "Philanthropy",
+                     "Business Address", "Interest&Hobby", "Current Address", "Others"]
+    chips = [html.Small([dot(org_color(k)), k], className="me-3") for k in ordered_types if k in ORG_TYPE_COLORS]
+    line2 = html.Div([html.Small(CONNECTED_THROUGH_LABEL + ":", className="me-2")] + chips)
+    return html.Div([line1, line2], className="mb-2")
 
 def make_graph_card():
     return dbc.Card(
@@ -286,13 +275,6 @@ def make_graph_card():
 # 2) GRAPH: Tripartite builder from subset of rows
 # =======================================================
 def build_tripartite_graph_html_from_subset(rows: pd.DataFrame) -> str:
-    """
-    rows: all rows for a chosen (client, connection) across multiple organizations.
-      Level 0: client
-      Level 1: each organization node with type-based color
-      Level 2: connection
-    Edges carry relation labels (client_org_relation / conn_org_relation).
-    """
     if rows.empty:
         return "<div style='padding:1rem'>No selection</div>"
 
@@ -302,16 +284,11 @@ def build_tripartite_graph_html_from_subset(rows: pd.DataFrame) -> str:
     connection_nw = rows.iloc[0]["connection_est_nw"]
 
     G = nx.Graph()
-
-    # Client (top)
     G.add_node(client, kind="client", level=0,
                title=f"<b>{client}</b><br>Net worth: {money(client_nw)}")
-
-    # Connection (bottom)
     G.add_node(connection, kind="connection", level=2,
                title=f"<b>{connection}</b><br>Net worth: {money(connection_nw)}")
 
-    # Orgs (middle)
     for _, r in rows.iterrows():
         org = r["organization"]
         otype = r.get("org_type", "Others")
@@ -342,7 +319,6 @@ def build_tripartite_graph_html_from_subset(rows: pd.DataFrame) -> str:
     }
     """)
 
-    # Add nodes with colors
     for n, attrs in G.nodes(data=True):
         kind  = attrs["kind"]
         level = int(attrs.get("level", 1))
@@ -352,7 +328,6 @@ def build_tripartite_graph_html_from_subset(rows: pd.DataFrame) -> str:
             color, size, border = COLOR_CONN, 18, 1
         else:
             color, size, border = org_color(attrs.get("org_type", "Others")), 16, 1
-
         net.add_node(n, label=n, title=attrs.get("title", n),
                      color=color, size=size, borderWidth=border, level=level)
 
@@ -381,48 +356,35 @@ app = dash.Dash(
 )
 app.title = "Client Connections"
 
-# =========
-# 4) LAYOUT
-# =========
-app.layout = dbc.Container(
-    [
-        make_header(),
-        dbc.Row(
-            [
-                # LEFT PANEL (search + favourites)
-                dbc.Col(
-                    [
-                        search_panel(df),
-                        favorites_panel(df),
-                    ],
-                    md=3,
-                ),
+# ==================================
+# 4) PAGE BUILDER (one function)
+# ==================================
+def build_page(df: pd.DataFrame):
+    left_col = dbc.Col([search_panel(df), favorites_panel(df)], md=3)
+    right_col = dbc.Col(
+        [
+            make_client_stats(),  # spans middle+right
+            dbc.Row(
+                [
+                    dbc.Col([dbc.Card(dbc.CardBody([make_table()]))], md=7),
+                    dbc.Col([make_graph_card()], md=5),
+                ],
+                className="g-3",
+            ),
+            dcc.Store(id="store-all", data=df.to_dict("records")),
+            dcc.Store(id="store-client-rows"),
+        ],
+        md=9,
+    )
+    return dbc.Row([left_col, right_col], className="g-3")
 
-                # RIGHT PANEL (client stats full-width + table/graph)
-                dbc.Col(
-                    [
-                        make_client_stats(),  # full width across middle+right
-                        dbc.Row(
-                            [
-                                dbc.Col([dbc.Card(dbc.CardBody([make_table()]))], md=7),
-                                dbc.Col([make_graph_card()], md=5),
-                            ],
-                            className="g-3",
-                        ),
-                        dcc.Store(id="store-all", data=df.to_dict("records")),
-                        dcc.Store(id="store-client-rows"),
-                    ],
-                    md=9,
-                ),
-            ],
-            className="g-3",
-        ),
-    ],
-    fluid=True,
-)
+# =========
+# 5) LAYOUT
+# =========
+app.layout = dbc.Container([make_header(), build_page(df)], fluid=True)
 
 # ======================
-# 5) CALLBACKS
+# 6) CALLBACKS
 # ======================
 @app.callback(
     Output("conn-table", "data"),
@@ -457,7 +419,7 @@ def update_table(all_rows, client_id, query, min_score):
     if min_score is not None:
         detailed = detailed[detailed["score"] >= float(min_score)]
 
-    # header (Primary Advisor + money fields)
+    # header
     r0 = df_all[df_all["client_id"] == client_id].iloc[0]
     client_name = r0.get("client_name", "")
     ace = r0.get("primary_ace", "")
@@ -467,13 +429,13 @@ def update_table(all_rows, client_id, query, min_score):
     if detailed.empty:
         return [], client_name, ace, aum, nw, []
 
-    # ---- Aggregate to one row per connection ----
+    # aggregate to one row per connection
     agg = (
         detailed.groupby("connection_name")
         .agg(
             orgs_concat=("organization", lambda s: "; ".join(pd.unique(s.astype(str)))),
             org_types_concat=("org_type", lambda s: "; ".join(pd.unique(s.astype(str)))),
-            score=("score", "max"),  # change to "mean" if you prefer
+            score=("score", "max"),
             connection_est_nw=("connection_est_nw", "first"),
         )
         .reset_index()
@@ -484,7 +446,6 @@ def update_table(all_rows, client_id, query, min_score):
 
     return agg.to_dict("records"), client_name, ace, aum, nw, detailed.to_dict("records")
 
-# Graph: click a connection row → use stored detailed rows to render tripartite
 @app.callback(
     Output("graph-container", "children"),
     Input("conn-table", "data"),
@@ -513,7 +474,6 @@ def update_graph(table_rows, selected_rows, detailed_rows):
     except Exception as e:
         return html.Pre(f"Graph failed: {e}", style={"color": "crimson", "whiteSpace": "pre-wrap"})
 
-# Favourites → set dropdown client
 @app.callback(
     Output("client-dd", "value"),
     Input({"type": "fav-item", "value": ALL}, "n_clicks"),
@@ -529,7 +489,7 @@ def fav_click(n_clicks_list, id_list):
     return triggered["value"]
 
 # =========
-# 6) MAIN
+# 7) MAIN
 # =========
 if __name__ == "__main__":
     app.run_server(host="0.0.0.0", port=8891, debug=True)
