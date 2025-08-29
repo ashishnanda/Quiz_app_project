@@ -9,17 +9,29 @@ import pandas as pd
 import networkx as nx
 
 import dash
-from dash import html, dcc, Input, Output, State, dash_table, ALL, ctx   # <- ctx imported
+from dash import html, dcc, Input, Output, State, dash_table, ALL, ctx
 import dash_bootstrap_components as dbc
-from dash.dash_table import Format
 from pyvis.network import Network
 
-# ----------------------------------
-# Colors for legend / node categories
-# ----------------------------------
+# -------------------------------
+# GLOBAL COLORS & LEGEND SETTINGS
+# -------------------------------
 COLOR_CLIENT = "#CC0000"     # red
-COLOR_ORG    = "#8fbff6"     # light blue
 COLOR_CONN   = "#2ca58d"     # teal
+
+# Editable: org-type -> color (used in graph & legend)
+ORG_TYPE_COLORS = {
+    "School":           "#4c9aff",
+    "Organisation":     "#8fbff6",
+    "Philanthropy":     "#f39c12",
+    "Business Address": "#9b59b6",
+    "Interest&Hobby":   "#27ae60",
+    "Current Address":  "#34495e",
+    "Others":           "#95a5a6",
+}
+
+def org_color(org_type: str) -> str:
+    return ORG_TYPE_COLORS.get(str(org_type), ORG_TYPE_COLORS["Others"])
 
 def money(x) -> str:
     try:
@@ -28,7 +40,7 @@ def money(x) -> str:
         return "-"
 
 # =========================================================
-# 0) DEMO DATA (each org in a separate row with org_type)
+# 0) DEMO DATA (each org on a separate row with org_type)
 # =========================================================
 def demo_connections_df() -> pd.DataFrame:
     """
@@ -41,7 +53,6 @@ def demo_connections_df() -> pd.DataFrame:
     """
     rows: List[Dict] = [
         # ---------- Client 1: Jamie Rose (fav) ----------
-        # Jamie & Adam share NYU and Red Cross as separate rows
         dict(client_id="C001", client_name="Jamie Rose", client_is_fav=1, primary_ace="Greta Clark",
              est_aum=2_170_000, client_est_nw=56_750_000,
              connection_name="Adam Wiles", connection_est_nw=12_300_000,
@@ -53,21 +64,18 @@ def demo_connections_df() -> pd.DataFrame:
              organization="Red Cross of New York", org_type="Philanthropy", score=4.83,
              client_org_relation="Donor/Chair", conn_org_relation="Secretary"),
 
-        # Jamie & Marion share Adobe (corporate board)
         dict(client_id="C001", client_name="Jamie Rose", client_is_fav=1, primary_ace="Greta Clark",
              est_aum=2_170_000, client_est_nw=56_750_000,
              connection_name="Marion Bishop", connection_est_nw=4_600_000,
              organization="Adobe Systems", org_type="Organisation", score=4.66,
              client_org_relation="Independent Director", conn_org_relation="Director"),
 
-        # Jamie & Steven share NYU
         dict(client_id="C001", client_name="Jamie Rose", client_is_fav=1, primary_ace="Greta Clark",
              est_aum=2_170_000, client_est_nw=56_750_000,
              connection_name="Steven Walker", connection_est_nw=2_150_000,
              organization="NYU", org_type="School", score=4.61,
              client_org_relation="Alumnus", conn_org_relation="Alumnus"),
 
-        # Jamie & John share Champion Health (employer)
         dict(client_id="C001", client_name="Jamie Rose", client_is_fav=1, primary_ace="Greta Clark",
              est_aum=2_170_000, client_est_nw=56_750_000,
              connection_name="John Phillips", connection_est_nw=3_900_000,
@@ -75,7 +83,6 @@ def demo_connections_df() -> pd.DataFrame:
              client_org_relation="Advisor to CEO", conn_org_relation="VP, Ops"),
 
         # ---------- Client 2: Ava Patel (fav) ----------
-        # Ava & Rohan share Nexon Biotech and IIT Bombay Alumni Association (2 rows)
         dict(client_id="C002", client_name="Ava Patel", client_is_fav=1, primary_ace="Daniel Ortiz",
              est_aum=4_500_000, client_est_nw=84_200_000,
              connection_name="Rohan Mehta", connection_est_nw=21_000_000,
@@ -128,6 +135,32 @@ def build_client_options(df: pd.DataFrame):
     d = df[["client_id", "client_name"]].drop_duplicates().astype(str)
     return [{"value": v, "label": f"{n} ({v})"} for v, n in zip(d.client_id, d.client_name)]
 
+def search_panel(df: pd.DataFrame) -> dbc.Card:
+    client_options = build_client_options(df)
+    body = dbc.CardBody(
+        [
+            dbc.Label("Search Client"),
+            dcc.Dropdown(
+                id="client-dd",
+                options=client_options,
+                value=client_options[0]["value"] if client_options else None,
+                clearable=False,
+                className="mb-2",
+            ),
+            dbc.Label("Search connections"),
+            dcc.Input(
+                id="search-box", type="text", debounce=True,
+                placeholder="name / org / type…", className="form-control mb-2",
+            ),
+            dbc.Label("Minimum score selector"),
+            dcc.Slider(
+                id="min-score", min=0, max=5, step=0.1, value=4.0,
+                marks={i: str(i) for i in range(0, 6)},
+            ),
+        ]
+    )
+    return dbc.Card(body, className="shadow-sm mb-3")
+
 def favorites_panel(df: pd.DataFrame) -> dbc.Card:
     favs = (
         df[df["client_is_fav"] == 1][["client_id", "client_name", "client_est_nw"]]
@@ -139,7 +172,7 @@ def favorites_panel(df: pd.DataFrame) -> dbc.Card:
         items.append(
             dbc.ListGroupItem(
                 [
-                    html.Div(r["client_name"], className="fw-bold"),
+                    html.Div(["⭐️ ", r["client_name"]], className="fw-bold"),
                     html.Small(f"Net worth: {money(r['client_est_nw'])}", className="text-muted")
                 ],
                 id={"type": "fav-item", "value": r["client_id"]},
@@ -172,64 +205,26 @@ def make_header():
         align="center", className="mb-2",
     )
 
-def make_filters(df: pd.DataFrame):
-    client_options = build_client_options(df)
-    return dbc.Card(
-        dbc.CardBody(
-            [
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            [
-                                dbc.Label("Client"),
-                                dcc.Dropdown(
-                                    id="client-dd",
-                                    options=client_options,
-                                    value=client_options[0]["value"] if client_options else None,
-                                    clearable=False,
-                                ),
-                            ],
-                            md=4,
-                        ),
-                        dbc.Col(
-                            [
-                                dbc.Label("Search connections"),
-                                dcc.Input(
-                                    id="search-box", type="text", debounce=True,
-                                    placeholder="name / org / type…", className="form-control",
-                                ),
-                            ],
-                            md=5,
-                        ),
-                        dbc.Col(
-                            [
-                                dbc.Label("Min score"),
-                                dcc.Slider(
-                                    id="min-score", min=0, max=5, step=0.1, value=4.0,
-                                    marks={i: str(i) for i in range(0, 6)},
-                                ),
-                            ],
-                            md=3,
-                        ),
-                    ],
-                    className="g-3",
-                )
-            ]
-        ),
-        className="mb-3 shadow-sm",
-    )
-
 def make_client_stats():
+    # one-line, fixed-width segments to reduce jitter
+    segment_style = {
+        "display": "inline-block",
+        "minWidth": "220px",
+        "marginRight": "12px",
+        "whiteSpace": "nowrap",
+    }
     return dbc.Card(
         dbc.CardBody(
             [
-                html.H5(id="client-name", className="mb-1"),
-                html.Div([html.Span("Primary ACE: "), html.B(id="client-ace")]),
+                html.H5(id="client-name", className="mb-2"),
+
                 html.Div(
                     [
-                        html.Span("Estimated AUM: "), html.B(id="client-aum"),
-                        html.Span(" • Estimated Net Worth: "), html.B(id="client-nw"),
-                    ]
+                        html.Span(["Primary Advisor: ", html.B(id="client-ace")], style=segment_style),
+                        html.Span(["Estimated AUM: ", html.B(id="client-aum")], style=segment_style),
+                        html.Span(["Estimated Net Worth: ", html.B(id="client-nw")], style=segment_style),
+                    ],
+                    style={"display": "flex", "flexWrap": "wrap"},
                 ),
             ]
         ),
@@ -242,8 +237,7 @@ def make_table():
         {"name": "Name", "id": "connection_name"},
         {"name": "Organizations", "id": "orgs_concat"},
         {"name": "Org Types", "id": "org_types_concat"},
-        {"name": "Score", "id": "score", "type": "numeric",
-         "format": Format(precision=2, scheme=Format.Scheme.fixed)},
+        {"name": "Score", "id": "score"},
         {"name": "Connection Net Worth", "id": "connection_net_worth"},
     ]
     return dash_table.DataTable(
@@ -261,16 +255,19 @@ def make_table():
     )
 
 def legend_box():
-    dot = lambda c: html.Span(style={"display": "inline-block", "width": "10px", "height": "10px",
-                                     "borderRadius": "50%", "background": c, "marginRight": "6px"})
-    return html.Div(
-        [
-            html.Small([dot(COLOR_CLIENT), "Client"], className="me-3"),
-            html.Small([dot(COLOR_ORG), "Organization"], className="me-3"),
-            html.Small([dot(COLOR_CONN), "Connection"], className="me-3"),
-        ],
-        className="mb-2",
-    )
+    def dot(c): 
+        return html.Span(style={"display": "inline-block", "width": "10px", "height": "10px",
+                                "borderRadius": "50%", "background": c, "marginRight": "6px"})
+    # dynamic org-type legends from ORG_TYPE_COLORS
+    org_legend = [html.Small([dot(org_color(k)), k], className="me-3") for k in ORG_TYPE_COLORS.keys()]
+    # add client & connection entries
+    head = [
+        html.Small([dot(COLOR_CLIENT), "Client"], className="me-3"),
+        html.Small([dot(COLOR_CONN), "Connection"], className="me-3"),
+        html.Span("•", className="mx-2 text-muted"),
+        html.Small("Organizations:", className="me-2"),
+    ]
+    return html.Div(head + org_legend, className="mb-2")
 
 def make_graph_card():
     return dbc.Card(
@@ -286,18 +283,15 @@ def make_graph_card():
     )
 
 # =======================================================
-# 2) GRAPH: Tripartite builder from a subset of rows
+# 2) GRAPH: Tripartite builder from subset of rows
 # =======================================================
 def build_tripartite_graph_html_from_subset(rows: pd.DataFrame) -> str:
     """
     rows: all rows for a chosen (client, connection) across multiple organizations.
-    This renders:
       Level 0: client
-      Level 1: each organization node in `rows['organization']`
+      Level 1: each organization node with type-based color
       Level 2: connection
-    Edges:
-      client --org--> organization  (label=client_org_relation)
-      connection --org--> organization (label=conn_org_relation)
+    Edges carry relation labels (client_org_relation / conn_org_relation).
     """
     if rows.empty:
         return "<div style='padding:1rem'>No selection</div>"
@@ -309,23 +303,20 @@ def build_tripartite_graph_html_from_subset(rows: pd.DataFrame) -> str:
 
     G = nx.Graph()
 
-    # Client node (top)
-    G.add_node(
-        client, kind="client", level=0,
-        title=f"<b>{client}</b><br>Net worth: {money(client_nw)}"
-    )
+    # Client (top)
+    G.add_node(client, kind="client", level=0,
+               title=f"<b>{client}</b><br>Net worth: {money(client_nw)}")
 
-    # Connection node (bottom)
-    G.add_node(
-        connection, kind="connection", level=2,
-        title=f"<b>{connection}</b><br>Net worth: {money(connection_nw)}"
-    )
+    # Connection (bottom)
+    G.add_node(connection, kind="connection", level=2,
+               title=f"<b>{connection}</b><br>Net worth: {money(connection_nw)}")
 
-    # Organization nodes (middle) + edges with labels
+    # Orgs (middle)
     for _, r in rows.iterrows():
         org = r["organization"]
-        org_title = f"{org}<br><i>{r.get('org_type','')}</i>"
-        G.add_node(org, kind="org", level=1, title=org_title)
+        otype = r.get("org_type", "Others")
+        org_title = f"{org}<br><i>{otype}</i>"
+        G.add_node(org, kind="org", level=1, title=org_title, org_type=otype)
         G.add_edge(client, org,
                    label=str(r.get("client_org_relation", "")),
                    title=str(r.get("client_org_relation", "")))
@@ -333,7 +324,6 @@ def build_tripartite_graph_html_from_subset(rows: pd.DataFrame) -> str:
                    label=str(r.get("conn_org_relation", "")),
                    title=str(r.get("conn_org_relation", "")))
 
-    # PyVis network (hierarchical UD)
     net = Network(height="520px", width="100%", bgcolor="#ffffff", font_color="#333333",
                   notebook=False, directed=False)
     net.set_options("""
@@ -352,12 +342,17 @@ def build_tripartite_graph_html_from_subset(rows: pd.DataFrame) -> str:
     }
     """)
 
+    # Add nodes with colors
     for n, attrs in G.nodes(data=True):
-        kind = attrs["kind"]
+        kind  = attrs["kind"]
         level = int(attrs.get("level", 1))
-        color = COLOR_CLIENT if kind == "client" else (COLOR_CONN if kind == "connection" else COLOR_ORG)
-        size = 28 if kind == "client" else (18 if kind == "connection" else 16)
-        border = 4 if kind == "client" else 1
+        if kind == "client":
+            color, size, border = COLOR_CLIENT, 28, 4
+        elif kind == "connection":
+            color, size, border = COLOR_CONN, 18, 1
+        else:
+            color, size, border = org_color(attrs.get("org_type", "Others")), 16, 1
+
         net.add_node(n, label=n, title=attrs.get("title", n),
                      color=color, size=size, borderWidth=border, level=level)
 
@@ -394,21 +389,28 @@ app.layout = dbc.Container(
         make_header(),
         dbc.Row(
             [
-                dbc.Col(favorites_panel(df), md=3),
-
+                # LEFT PANEL (search + favourites)
                 dbc.Col(
                     [
-                        make_filters(df),
+                        search_panel(df),
+                        favorites_panel(df),
+                    ],
+                    md=3,
+                ),
+
+                # RIGHT PANEL (client stats full-width + table/graph)
+                dbc.Col(
+                    [
+                        make_client_stats(),  # full width across middle+right
                         dbc.Row(
                             [
-                                dbc.Col([make_client_stats(),
-                                         dbc.Card(dbc.CardBody([make_table()]))], md=7),
+                                dbc.Col([dbc.Card(dbc.CardBody([make_table()]))], md=7),
                                 dbc.Col([make_graph_card()], md=5),
                             ],
                             className="g-3",
                         ),
                         dcc.Store(id="store-all", data=df.to_dict("records")),
-                        dcc.Store(id="store-client-rows"),  # detailed rows after filter (per client)
+                        dcc.Store(id="store-client-rows"),
                     ],
                     md=9,
                 ),
@@ -455,12 +457,12 @@ def update_table(all_rows, client_id, query, min_score):
     if min_score is not None:
         detailed = detailed[detailed["score"] >= float(min_score)]
 
-    # header values from any row for this client
+    # header (Primary Advisor + money fields)
     r0 = df_all[df_all["client_id"] == client_id].iloc[0]
     client_name = r0.get("client_name", "")
     ace = r0.get("primary_ace", "")
     aum = money(r0.get("est_aum", 0))
-    nw = money(r0.get("client_est_nw", 0))
+    nw  = money(r0.get("client_est_nw", 0))
 
     if detailed.empty:
         return [], client_name, ace, aum, nw, []
@@ -471,20 +473,18 @@ def update_table(all_rows, client_id, query, min_score):
         .agg(
             orgs_concat=("organization", lambda s: "; ".join(pd.unique(s.astype(str)))),
             org_types_concat=("org_type", lambda s: "; ".join(pd.unique(s.astype(str)))),
-            score=("score", "max"),  # or "mean"
+            score=("score", "max"),  # change to "mean" if you prefer
             connection_est_nw=("connection_est_nw", "first"),
         )
         .reset_index()
     )
     agg["connection_net_worth"] = agg["connection_est_nw"].apply(money)
     agg = agg.drop(columns=["connection_est_nw"])
-
-    # sort by score desc
     agg = agg.sort_values("score", ascending=False)
 
     return agg.to_dict("records"), client_name, ace, aum, nw, detailed.to_dict("records")
 
-# Graph: click a connection row → use store-client-rows (detailed) to build tripartite
+# Graph: click a connection row → use stored detailed rows to render tripartite
 @app.callback(
     Output("graph-container", "children"),
     Input("conn-table", "data"),
@@ -532,4 +532,4 @@ def fav_click(n_clicks_list, id_list):
 # 6) MAIN
 # =========
 if __name__ == "__main__":
-    app.run_server(host="0.0.0.0", port=dash_port, debug=True)
+    app.run_server(host="0.0.0.0", port=8891, debug=True)
