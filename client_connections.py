@@ -1,0 +1,369 @@
+# app.py
+import warnings
+warnings.filterwarnings("ignore")
+
+import uuid
+import numpy as np
+import pandas as pd
+import networkx as nx
+
+import dash
+from dash import html, dcc, Input, Output, State, dash_table, callback_context
+import dash_bootstrap_components as dbc
+
+from pyvis.network import Network
+
+# --------------------------------------------------------------------------------------
+# 0) Demo data loader (replace with your SQL/Cosmos hydrator)
+# --------------------------------------------------------------------------------------
+def demo_connections_df() -> pd.DataFrame:
+    rows = [
+        # Focal client: Jamie Rose
+        dict(client_id="C001", client_name="Jamie Rose", primary_ace="Greta Clark",
+             est_aum=2170000.0, est_wei=56750000.0,
+             connection_name="Adam Wiles", connection_type="School Board",
+             organization="NYU; Red Cross of New York", score=4.83, is_client=True,
+             role="Secretary", since_year=2009, city="Norwalk, CT"),
+
+        dict(client_id="C001", client_name="Jamie Rose", primary_ace="Greta Clark",
+             est_aum=2170000.0, est_wei=56750000.0,
+             connection_name="Marion Bishop", connection_type="Board (Corporate)",
+             organization="Adobe Systems", score=4.66, is_client=False,
+             role="Director", since_year=2017, city="NYC"),
+
+        dict(client_id="C001", client_name="Jamie Rose", primary_ace="Greta Clark",
+             est_aum=2170000.0, est_wei=56750000.0,
+             connection_name="Steven Walker", connection_type="School",
+             organization="NYU", score=4.61, is_client=False,
+             role="", since_year=2003, city="NYC"),
+
+        dict(client_id="C001", client_name="Jamie Rose", primary_ace="Greta Clark",
+             est_aum=2170000.0, est_wei=56750000.0,
+             connection_name="John Phillips", connection_type="Employer",
+             organization="Champion Health", score=4.6, is_client=False,
+             role="VP", since_year=2014, city="Boston"),
+
+        dict(client_id="C001", client_name="Jamie Rose", primary_ace="Greta Clark",
+             est_aum=2170000.0, est_wei=56750000.0,
+             connection_name="Martin Reed", connection_type="Board (Charitable)",
+             organization="Red Cross of New York", score=4.58, is_client=False,
+             role="Chair", since_year=2015, city="NYC"),
+    ]
+    return pd.DataFrame(rows)
+
+# --------------------------------------------------------------------------------------
+# 1) UI components
+# --------------------------------------------------------------------------------------
+def make_header():
+    return dbc.Row(
+        [
+            dbc.Col(html.H4("Visualizing client connections", className="mb-0"), md=8),
+            dbc.Col(
+                html.Div(
+                    [
+                        html.Span("Data status: "),
+                        dbc.Badge("3rd party / AI-driven", color="secondary", className="me-1"),
+                        dbc.Badge("Advisor-confirmed", color="success"),
+                    ],
+                    className="text-end",
+                ),
+                md=4,
+            ),
+        ],
+        align="center", className="mb-2",
+    )
+
+def make_filters(df: pd.DataFrame):
+    client_options = (
+        df[["client_id", "client_name"]]
+        .drop_duplicates()
+        .assign(label=lambda d: d["client_name"] + " (" + d["client_id"] + ")")
+        .rename(columns={"client_id": "value", "label": "label"})
+        .to_dict("records")
+    )
+    return dbc.Card(
+        dbc.CardBody(
+            [
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                dbc.Label("Client"),
+                                dcc.Dropdown(
+                                    id="client-dd",
+                                    options=client_options,
+                                    value=client_options[0]["value"] if client_options else None,
+                                    clearable=False,
+                                ),
+                            ],
+                            md=4,
+                        ),
+                        dbc.Col(
+                            [
+                                dbc.Label("Search connections"),
+                                dcc.Input(
+                                    id="search-box",
+                                    type="text",
+                                    debounce=True,
+                                    placeholder="name / org / type…",
+                                    className="form-control",
+                                ),
+                            ],
+                            md=5,
+                        ),
+                        dbc.Col(
+                            [
+                                dbc.Label("Min score"),
+                                dcc.Slider(id="min-score", min=0, max=5, step=0.1, value=4.3,
+                                           tooltip={"always_visible": False}),
+                            ],
+                            md=3,
+                        ),
+                    ],
+                    className="g-3",
+                )
+            ]
+        ),
+        className="mb-3 shadow-sm",
+    )
+
+def make_client_stats():
+    return dbc.Card(
+        dbc.CardBody(
+            [
+                html.H5(id="client-name", className="mb-1"),
+                html.Div(
+                    [
+                        html.Span("Primary ACE: "),
+                        html.B(id="client-ace"),
+                    ]
+                ),
+                html.Div(
+                    [
+                        html.Span("Estimated AUM: "),
+                        html.B(id="client-aum"),
+                        html.Span(" • Estimated Net Worth: "),
+                        html.B(id="client-nw"),
+                    ]
+                ),
+            ]
+        ),
+        className="mb-2 shadow-sm",
+    )
+
+def make_table():
+    columns = [
+        {"name": "Name", "id": "connection_name"},
+        {"name": "Connection Type", "id": "connection_type"},
+        {"name": "Organization", "id": "organization"},
+        {"name": "Score", "id": "score", "type": "numeric", "format": dash_table.Format(precision=2)},
+        {"name": "Client?", "id": "is_client"},
+        {"name": "Role", "id": "role"},
+        {"name": "Since", "id": "since_year"},
+    ]
+    return dash_table.DataTable(
+        id="conn-table",
+        columns=columns,
+        data=[],
+        page_size=10,
+        sort_action="native",
+        filter_action="none",
+        row_selectable="single",
+        style_table={"height": "420px", "overflowY": "auto"},
+        style_cell={"fontSize": 13, "padding": "8px"},
+        style_header={"fontWeight": "bold"},
+        selected_rows=[],
+    )
+
+def make_graph_card():
+    return dbc.Card(
+        dbc.CardBody(
+            [
+                html.Div(
+                    [
+                        html.H6("Connections graph", className="mb-2"),
+                        html.Div(id="graph-container"),
+                    ]
+                )
+            ]
+        ),
+        className="shadow-sm",
+        style={"minHeight": "520px"},
+    )
+
+# --------------------------------------------------------------------------------------
+# 2) Graph builder (PyVis → HTML string → Iframe)
+# --------------------------------------------------------------------------------------
+def build_pyvis_graph_html(df_for_client: pd.DataFrame, focus_selection: str | None) -> str:
+    """
+    Build an ego network centered at the focal client.
+    - df_for_client: subset for a single client
+    - focus_selection: connection_name to emphasize (from table selection)
+    Returns inline HTML for embedding in an Iframe.
+    """
+    if df_for_client.empty:
+        return "<div style='padding:1rem'>No data</div>"
+
+    focal = df_for_client.iloc[0]["client_name"]
+    G = nx.Graph()
+    G.add_node(focal, kind="client")
+
+    # Add neighbors
+    for _, r in df_for_client.iterrows():
+        node_label = r["connection_name"]
+        G.add_node(
+            node_label,
+            kind=("client" if r.get("is_client", False) else "connection"),
+            title=f"{r['connection_type']}<br>{r['organization']}",
+        )
+        # Edge carries score & role
+        G.add_edge(focal, node_label, weight=float(r["score"]), label=str(r.get("role", "")))
+
+    # PyVis rendering
+    net = Network(height="520px", width="100%", bgcolor="#ffffff", font_color="#333333", notebook=False, directed=False)
+    net.barnes_hut(gravity=-20000, central_gravity=0.3, spring_length=180, spring_strength=0.015)
+
+    # Translate from NetworkX
+    for n, attrs in G.nodes(data=True):
+        size = 28 if attrs["kind"] == "client" else 16
+        border = 4 if attrs["kind"] == "client" else 1
+        color = "#CC0000" if attrs["kind"] == "client" else "#8fbff6"
+        if focus_selection and n == focus_selection:
+            size = 26
+            border = 4
+            color = "#f6a623"  # highlight pick
+
+        net.add_node(n, label=n, title=attrs.get("title", n), size=size, borderWidth=border, color=color)
+
+    for s, t, attrs in G.edges(data=True):
+        width = 1 + (attrs.get("weight", 0) or 0)  # map score ~ [0..5] → [1..6]
+        net.add_edge(s, t, value=width, title=f"Score {attrs.get('weight','')}; {attrs.get('label','')}", width=width)
+
+    # Static physics toggle + fit
+    net.set_options("""
+    const options = {
+      nodes: { shape: "dot" },
+      interaction: { hover: true },
+      physics: { stabilization: true }
+    }
+    """)
+
+    # Export to HTML string
+    return net.generate_html(notebook=False)
+
+# --------------------------------------------------------------------------------------
+# 3) Dash app
+# --------------------------------------------------------------------------------------
+df = demo_connections_df()
+
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app.title = "Client Connections"
+
+app.layout = dbc.Container(
+    [
+        make_header(),
+        make_filters(df),
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        make_client_stats(),
+                        dbc.Card(dbc.CardBody([make_table()])),
+                    ],
+                    md=7,
+                ),
+                dbc.Col(
+                    [make_graph_card()],
+                    md=5,
+                ),
+            ],
+            className="g-3",
+        ),
+        dcc.Store(id="store-all", data=df.to_dict("records")),
+    ],
+    fluid=True,
+)
+
+# --------------------------------------------------------------------------------------
+# 4) Callbacks
+# --------------------------------------------------------------------------------------
+@app.callback(
+    Output("conn-table", "data"),
+    Output("client-name", "children"),
+    Output("client-ace", "children"),
+    Output("client-aum", "children"),
+    Output("client-nw", "children"),
+    Input("store-all", "data"),
+    Input("client-dd", "value"),
+    Input("search-box", "value"),
+    Input("min-score", "value"),
+)
+def update_table(all_rows, client_id, query, min_score):
+    df_all = pd.DataFrame(all_rows)
+    d = df_all[df_all["client_id"] == client_id].copy()
+
+    # Update header stats from first row
+    if d.empty:
+        return [], "", "", "", ""
+
+    # text search (name/org/type contains)
+    if query:
+        q = query.lower()
+        mask = (
+            d["connection_name"].str.lower().str.contains(q)
+            | d["organization"].str.lower().str.contains(q)
+            | d["connection_type"].str.lower().str.contains(q)
+        )
+        d = d[mask]
+
+    # score filter
+    if min_score is not None:
+        d = d[d["score"] >= float(min_score)]
+
+    # format booleans as Yes/No
+    if "is_client" in d.columns:
+        d["is_client"] = d["is_client"].map({True: "Yes", False: "No"})
+
+    # client header fields
+    r0 = df_all[df_all["client_id"] == client_id].iloc[0]
+    client_name = r0["client_name"]
+    ace = r0.get("primary_ace", "")
+    aum = f"${r0.get('est_aum', 0):,.0f}"
+    nw = f"${r0.get('est_wei', 0):,.0f}"
+
+    # table sort default by score desc for nicer UX
+    d = d.sort_values("score", ascending=False)
+
+    return d.to_dict("records"), client_name, ace, aum, nw
+
+
+@app.callback(
+    Output("graph-container", "children"),
+    Input("conn-table", "data"),
+    Input("conn-table", "selected_rows"),
+)
+def update_graph(table_rows, selected_rows):
+    d = pd.DataFrame(table_rows)
+    if d.empty:
+        return html.Div("No connections found", style={"padding": "1rem"})
+
+    focus = None
+    if selected_rows:
+        try:
+            focus = d.iloc[selected_rows[0]]["connection_name"]
+        except Exception:
+            focus = None
+
+    html_str = build_pyvis_graph_html(d, focus)
+    # Embed as Iframe using srcDoc
+    return html.Iframe(
+        srcDoc=html_str,
+        style={"width": "100%", "height": "520px", "border": "0"},
+        sandbox="allow-scripts allow-same-origin",
+    )
+
+# --------------------------------------------------------------------------------------
+# 5) Main
+# --------------------------------------------------------------------------------------
+if __name__ == "__main__":
+    app.run_server(debug=True)
